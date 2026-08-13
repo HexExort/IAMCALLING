@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+<link rel="icon" href="data:,">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>I AM CALLING</title>
@@ -511,42 +512,49 @@ function connectSocket() {
     await processSignal(from, data);
   });
 
-  async function processSignal(from, data) {
-    if (data.type === 'offer') {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
-      remoteDescSet = true;
-      await flushPendingCandidates();
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
-      socket.emit('signal', { contact: from, data: peerConnection.localDescription });
-    } else if (data.type === 'answer') {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
-      remoteDescSet = true;
-      await flushPendingCandidates();
-    } else if (data.candidate) {
-      // If the remote description isn't set yet, queue the candidate —
-      // adding it too early throws and silently drops it, which is what
-      // was causing calls to randomly fail to connect.
-      if (remoteDescSet) {
-        try { await peerConnection.addIceCandidate(new RTCIceCandidate(data)); } catch (e) {}
-      } else {
-        pendingCandidates.push(data);
-      }
-    }
-  }
-
-  async function flushPendingCandidates() {
-    for (const c of pendingCandidates) {
-      try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
-    }
-    pendingCandidates = [];
-  }
-
   socket.on('call-ended', () => {
     document.getElementById('incoming-call-modal').classList.remove('active');
     pendingSignals = [];
     if (inCall) endCall(false);
   });
+}
+
+// NOTE: these two must be in the top-level (global) scope, not nested
+// inside connectSocket() — startCall() also needs to call processSignal
+// when flushing messages that arrived before peerConnection existed.
+// They were previously nested inside connectSocket, which made them
+// undefined from startCall's point of view and silently dropped the
+// very first offer/answer of a call — the root cause of calls hanging
+// on "соединяем..." forever.
+async function processSignal(from, data) {
+  if (data.type === 'offer') {
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
+    remoteDescSet = true;
+    await flushPendingCandidates();
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    socket.emit('signal', { contact: from, data: peerConnection.localDescription });
+  } else if (data.type === 'answer') {
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
+    remoteDescSet = true;
+    await flushPendingCandidates();
+  } else if (data.candidate) {
+    // If the remote description isn't set yet, queue the candidate —
+    // adding it too early throws and silently drops it, which is what
+    // was causing calls to randomly fail to connect.
+    if (remoteDescSet) {
+      try { await peerConnection.addIceCandidate(new RTCIceCandidate(data)); } catch (e) {}
+    } else {
+      pendingCandidates.push(data);
+    }
+  }
+}
+
+async function flushPendingCandidates() {
+  for (const c of pendingCandidates) {
+    try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+  }
+  pendingCandidates = [];
 }
 
 // ---------- Contact / Chat ----------
