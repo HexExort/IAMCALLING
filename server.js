@@ -119,6 +119,30 @@ app.post('/api/subscribe', async (req, res) => {
   res.json({ ok: true });
 });
 
+// List of people the logged-in user has chatted with, most recent first
+app.get('/api/contacts', async (req, res) => {
+  if (!req.session.username) return res.status(401).json({ error: 'Не авторизован' });
+  const username = req.session.username;
+  const { rows } = await pool.query(
+    `SELECT room, MAX(created_at) AS last_at,
+            (ARRAY_AGG(body ORDER BY created_at DESC))[1] AS last_body,
+            (ARRAY_AGG(sender ORDER BY created_at DESC))[1] AS last_sender
+     FROM messages
+     WHERE room LIKE '%' || $1 || '%'
+     GROUP BY room
+     ORDER BY last_at DESC`,
+    [username]
+  );
+  const contacts = rows
+    .map(r => {
+      const [a, b] = r.room.split('___');
+      const contact = a === username ? b : (b === username ? a : null);
+      return contact ? { contact, lastBody: r.last_body, lastSender: r.last_sender, lastAt: r.last_at } : null;
+    })
+    .filter(Boolean);
+  res.json(contacts);
+});
+
 // Chat history between the logged-in user and a contact
 app.get('/api/messages/:contact', async (req, res) => {
   if (!req.session.username) return res.status(401).json({ error: 'Не авторизован' });
