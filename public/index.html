@@ -112,11 +112,33 @@
     position: absolute; top: 16px; left: 16px;
     background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 6px; font-size: 14px;
   }
-  #hangup {
+  #call-controls {
     position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
-    background: #dc2626; padding: 12px 24px;
+    display: flex; gap: 12px;
   }
+  #call-controls button {
+    width: 52px; height: 52px; border-radius: 50%; padding: 0;
+    font-size: 20px; display: flex; align-items: center; justify-content: center;
+    background: #333;
+  }
+  #call-controls button:hover { background: #444; }
+  #call-controls button.active-off { background: #dc2626; }
+  #call-controls button.active-off:hover { background: #b91c1c; }
+  #hangup { background: #dc2626; }
   #hangup:hover { background: #b91c1c; }
+
+  /* Call-type chooser */
+  #call-type-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center; z-index: 10;
+  }
+  #call-type-modal.active { display: flex; }
+  #call-type-box {
+    background: #1a1a1a; border-radius: 12px; padding: 20px;
+    display: flex; flex-direction: column; gap: 10px; width: 260px;
+  }
+  #call-type-box button { background: #2a2a2a; }
+  #call-type-box button:hover { background: #333; }
   .top-nav { display: flex; gap: 8px; align-items: center; }
   .top-nav button { padding: 6px 12px; font-size: 14px; }
 
@@ -167,7 +189,7 @@
       <button id="back-btn">← Назад</button>
       <span id="chat-with"></span>
     </div>
-    <button id="call-btn">📹 Позвонить</button>
+    <button id="call-btn">📞 Позвонить</button>
   </div>
   <div id="messages"></div>
   <form id="message-form">
@@ -176,13 +198,27 @@
   </form>
 </div>
 
+<!-- CALL TYPE MODAL -->
+<div id="call-type-modal">
+  <div id="call-type-box">
+    <h2 style="margin-top:0;">Тип звонка</h2>
+    <button id="call-audio-btn">🎤 Только аудио</button>
+    <button id="call-video-btn">📹 Аудио и видео</button>
+    <button id="call-cancel-btn" style="background:none; color:#999;">Отмена</button>
+  </div>
+</div>
+
 <!-- CALL SCREEN -->
 <div id="call-screen" class="screen">
   <div id="call-screen-inner">
     <div id="call-status">Вызов...</div>
     <video id="remote-video" autoplay playsinline></video>
     <video id="local-video" autoplay playsinline muted></video>
-    <button id="hangup">Завершить звонок</button>
+    <div id="call-controls">
+      <button id="mute-btn" title="Микрофон">🎤</button>
+      <button id="video-toggle-btn" title="Камера">📹</button>
+      <button id="hangup" title="Завершить">📴</button>
+    </div>
   </div>
 </div>
 
@@ -211,7 +247,18 @@ let inCall = false;
 const config = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
+    // Public TURN server — needed when direct P2P fails (strict NAT/firewalls,
+    // which is common for connections crossing countries/ISPs)
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ]
 };
 
@@ -357,11 +404,12 @@ function connectSocket() {
     }
   });
 
-  socket.on('incoming-call', ({ from }) => {
-    if (confirm(`Входящий звонок от ${from}. Ответить?`)) {
+  socket.on('incoming-call', ({ from, video }) => {
+    const kind = video ? 'видеозвонок' : 'аудиозвонок';
+    if (confirm(`Входящий ${kind} от ${from}. Ответить?`)) {
       currentContact = from;
       document.getElementById('chat-with').textContent = from;
-      startCall(false);
+      startCall(false, !!video);
     }
   });
 
@@ -418,20 +466,52 @@ document.getElementById('message-form').onsubmit = (e) => {
 };
 
 // ---------- Video call ----------
+let isMuted = false;
+let isVideoOff = false;
+let pendingIsVideo = true;
+
 document.getElementById('call-btn').onclick = () => {
   if (!currentContact) return;
-  socket.emit('call-user', { contact: currentContact });
-  startCall(true);
+  document.getElementById('call-type-modal').classList.add('active');
 };
 
-async function startCall(isCaller) {
+document.getElementById('call-cancel-btn').onclick = () => {
+  document.getElementById('call-type-modal').classList.remove('active');
+};
+
+document.getElementById('call-audio-btn').onclick = () => {
+  document.getElementById('call-type-modal').classList.remove('active');
+  pendingIsVideo = false;
+  socket.emit('call-user', { contact: currentContact, video: false });
+  startCall(true, false);
+};
+
+document.getElementById('call-video-btn').onclick = () => {
+  document.getElementById('call-type-modal').classList.remove('active');
+  pendingIsVideo = true;
+  socket.emit('call-user', { contact: currentContact, video: true });
+  startCall(true, true);
+};
+
+async function startCall(isCaller, withVideo) {
   if (inCall) return;
   inCall = true;
+  isMuted = false;
+  isVideoOff = false;
   show('call-screen');
+  document.getElementById('call-status').style.display = 'block';
   document.getElementById('call-status').textContent = isCaller ? 'Звоним...' : 'Соединяем...';
 
-  localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  const videoToggleBtn = document.getElementById('video-toggle-btn');
+  videoToggleBtn.style.display = withVideo ? 'flex' : 'none';
+  document.getElementById('mute-btn').textContent = '🎤';
+  videoToggleBtn.textContent = '📹';
+  document.getElementById('mute-btn').classList.remove('active-off');
+  videoToggleBtn.classList.remove('active-off');
+
+  localStream = await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
   document.getElementById('local-video').srcObject = localStream;
+  document.getElementById('local-video').style.display = withVideo ? 'block' : 'none';
 
   peerConnection = new RTCPeerConnection(config);
   localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
@@ -447,12 +527,42 @@ async function startCall(isCaller) {
     }
   };
 
+  peerConnection.onconnectionstatechange = () => {
+    if (peerConnection.connectionState === 'connected') {
+      document.getElementById('call-status').style.display = 'none';
+    } else if (['failed', 'disconnected'].includes(peerConnection.connectionState)) {
+      document.getElementById('call-status').style.display = 'block';
+      document.getElementById('call-status').textContent = 'Связь прервалась...';
+    }
+  };
+
   if (isCaller) {
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
     socket.emit('signal', { contact: currentContact, data: peerConnection.localDescription });
   }
 }
+
+document.getElementById('mute-btn').onclick = () => {
+  if (!localStream) return;
+  isMuted = !isMuted;
+  localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
+  const btn = document.getElementById('mute-btn');
+  btn.textContent = isMuted ? '🔇' : '🎤';
+  btn.classList.toggle('active-off', isMuted);
+};
+
+document.getElementById('video-toggle-btn').onclick = () => {
+  if (!localStream) return;
+  const videoTracks = localStream.getVideoTracks();
+  if (videoTracks.length === 0) return;
+  isVideoOff = !isVideoOff;
+  videoTracks.forEach(t => t.enabled = !isVideoOff);
+  const btn = document.getElementById('video-toggle-btn');
+  btn.textContent = isVideoOff ? '🚫' : '📹';
+  btn.classList.toggle('active-off', isVideoOff);
+  document.getElementById('local-video').style.display = isVideoOff ? 'none' : 'block';
+};
 
 document.getElementById('hangup').onclick = () => endCall(true);
 
