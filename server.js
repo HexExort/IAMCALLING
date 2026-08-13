@@ -119,6 +119,15 @@ app.post('/api/subscribe', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Check whether a username is registered (used before opening a new chat)
+app.get('/api/user-exists/:username', async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT 1 FROM users WHERE username = $1',
+    [req.params.username]
+  );
+  res.json({ exists: rows.length > 0 });
+});
+
 // List of people the logged-in user has chatted with, most recent first
 app.get('/api/contacts', async (req, res) => {
   if (!req.session.username) return res.status(401).json({ error: 'Не авторизован' });
