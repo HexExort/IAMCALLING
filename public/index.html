@@ -139,6 +139,17 @@
   }
   #call-type-box button { background: #2a2a2a; }
   #call-type-box button:hover { background: #333; }
+
+  #incoming-call-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center; z-index: 20;
+  }
+  #incoming-call-modal.active { display: flex; }
+  #incoming-call-box {
+    background: #1a1a1a; border-radius: 12px; padding: 24px;
+    display: flex; flex-direction: column; gap: 16px; width: 280px; text-align: center;
+  }
+  #incoming-call-box button { flex: 1; padding: 14px; }
   .top-nav { display: flex; gap: 8px; align-items: center; }
   .top-nav button { padding: 6px 12px; font-size: 14px; }
 
@@ -198,6 +209,17 @@
   </form>
 </div>
 
+<!-- INCOMING CALL MODAL (non-blocking, unlike native confirm()) -->
+<div id="incoming-call-modal">
+  <div id="incoming-call-box">
+    <h2 id="incoming-call-text" style="margin-top:0;">Входящий звонок</h2>
+    <div style="display:flex; gap:12px;">
+      <button id="decline-call-btn" style="background:#dc2626;">🥲 Отклонить</button>
+      <button id="accept-call-btn" style="background:#16a34a;">✅ Ответить</button>
+    </div>
+  </div>
+</div>
+
 <!-- CALL TYPE MODAL -->
 <div id="call-type-modal">
   <div id="call-type-box">
@@ -245,6 +267,7 @@ let peerConnection = null;
 let inCall = false;
 let remoteDescSet = false;
 let pendingCandidates = [];
+let pendingSignals = [];
 
 const config = {
   iceServers: [
@@ -414,16 +437,20 @@ function connectSocket() {
   });
 
   socket.on('incoming-call', ({ from, video }) => {
-    const kind = video ? 'видеозвонок' : 'аудиозвонок';
-    if (confirm(`Входящий ${kind} от ${from}. Ответить?`)) {
-      currentContact = from;
-      document.getElementById('chat-with').textContent = from;
-      startCall(false, !!video);
-    }
+    showIncomingCallScreen(from, !!video);
   });
 
   socket.on('signal', async ({ from, data }) => {
-    if (!peerConnection) return;
+    if (!peerConnection) {
+      // Peer connection doesn't exist yet (e.g. user hasn't answered the
+      // incoming-call prompt yet) — queue it instead of dropping it.
+      pendingSignals.push({ from, data });
+      return;
+    }
+    await processSignal(from, data);
+  });
+
+  async function processSignal(from, data) {
     if (data.type === 'offer') {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
       remoteDescSet = true;
@@ -445,7 +472,7 @@ function connectSocket() {
         pendingCandidates.push(data);
       }
     }
-  });
+  }
 
   async function flushPendingCandidates() {
     for (const c of pendingCandidates) {
@@ -455,7 +482,9 @@ function connectSocket() {
   }
 
   socket.on('call-ended', () => {
-    endCall(false);
+    document.getElementById('incoming-call-modal').classList.remove('active');
+    pendingSignals = [];
+    if (inCall) endCall(false);
   });
 }
 
@@ -564,6 +593,14 @@ async function startCall(isCaller, withVideo) {
     }
   };
 
+  // Process any signaling messages (offer/candidates) that arrived while
+  // this device hadn't answered yet and peerConnection didn't exist.
+  const queued = pendingSignals;
+  pendingSignals = [];
+  for (const { from, data } of queued) {
+    await processSignal(from, data);
+  }
+
   if (isCaller) {
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
@@ -621,10 +658,30 @@ document.getElementById('video-toggle-btn').onclick = async () => {
 
 document.getElementById('hangup').onclick = () => endCall(true);
 
+function showIncomingCallScreen(from, video) {
+  document.getElementById('incoming-call-text').textContent =
+    `${video ? 'Видеозвонок' : 'Аудиозвонок'} от ${from}`;
+  document.getElementById('incoming-call-modal').classList.add('active');
+
+  document.getElementById('accept-call-btn').onclick = () => {
+    document.getElementById('incoming-call-modal').classList.remove('active');
+    currentContact = from;
+    document.getElementById('chat-with').textContent = from;
+    startCall(false, video);
+  };
+
+  document.getElementById('decline-call-btn').onclick = () => {
+    document.getElementById('incoming-call-modal').classList.remove('active');
+    pendingSignals = [];
+    socket.emit('call-ended', { contact: from });
+  };
+}
+
 function endCall(notifyServer) {
   inCall = false;
   remoteDescSet = false;
   pendingCandidates = [];
+  pendingSignals = [];
   if (peerConnection) { peerConnection.close(); peerConnection = null; }
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   document.getElementById('remote-video').srcObject = null;
