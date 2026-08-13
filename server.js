@@ -154,6 +154,14 @@ app.get('/api/messages/:contact', async (req, res) => {
   res.json(rows);
 });
 
+// Delete an entire chat thread with a contact
+app.delete('/api/messages/:contact', async (req, res) => {
+  if (!req.session.username) return res.status(401).json({ error: 'Не авторизован' });
+  const room = roomFor(req.session.username, req.params.contact);
+  await pool.query('DELETE FROM messages WHERE room = $1', [room]);
+  res.json({ ok: true });
+});
+
 // --- Socket.io: chat + WebRTC signaling ---
 // Track which socket belongs to which logged-in username
 const onlineUsers = new Map(); // username -> socket.id
