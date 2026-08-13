@@ -194,20 +194,24 @@ io.on('connection', (socket) => {
   });
 
   // --- WebRTC call signaling ---
-  socket.on('call-user', ({ contact }) => {
+  socket.on('call-user', ({ contact, video }) => {
     const room = roomFor(username, contact);
     socket.join(room);
     socket.data.room = room;
-    socket.to(room).emit('incoming-call', { from: username });
 
-    if (!onlineUsers.has(contact)) {
+    // Make sure the callee's socket is also in the room, even if they
+    // never opened this chat thread yet — otherwise they never receive
+    // the offer/ICE candidates that follow.
+    const targetSocketId = onlineUsers.get(contact);
+    if (targetSocketId) {
+      const targetSocket = io.sockets.sockets.get(targetSocketId);
+      if (targetSocket) targetSocket.join(room);
+      io.to(targetSocketId).emit('incoming-call', { from: username, video });
+    } else {
       sendPushToUser(contact, {
         type: 'call',
         from: username
       });
-    } else {
-      const targetSocketId = onlineUsers.get(contact);
-      io.to(targetSocketId).emit('incoming-call', { from: username });
     }
   });
 
