@@ -549,8 +549,15 @@ document.getElementById('call-video-btn').onclick = () => {
   startCall(true, true);
 };
 
+let connectTimeoutId = null;
+
 async function startCall(isCaller, withVideo) {
-  if (inCall) return;
+  if (inCall) {
+    // A previous call attempt is stuck (never properly connected or
+    // cleaned up) — reset everything instead of silently ignoring the
+    // new attempt, which is what made retries look broken.
+    endCall(true);
+  }
   inCall = true;
   isMuted = false;
   isVideoOff = false;
@@ -576,6 +583,7 @@ async function startCall(isCaller, withVideo) {
   peerConnection.ontrack = (event) => {
     document.getElementById('remote-video').srcObject = event.streams[0];
     document.getElementById('call-status').style.display = 'none';
+    clearTimeout(connectTimeoutId);
   };
 
   peerConnection.onicecandidate = (event) => {
@@ -585,9 +593,11 @@ async function startCall(isCaller, withVideo) {
   };
 
   peerConnection.onconnectionstatechange = () => {
+    if (!peerConnection) return;
     if (peerConnection.connectionState === 'connected') {
       document.getElementById('call-status').style.display = 'none';
-    } else if (['failed', 'disconnected'].includes(peerConnection.connectionState)) {
+      clearTimeout(connectTimeoutId);
+    } else if (['failed', 'disconnected', 'closed'].includes(peerConnection.connectionState)) {
       document.getElementById('call-status').style.display = 'block';
       document.getElementById('call-status').textContent = 'Связь прервалась...';
     }
@@ -606,6 +616,16 @@ async function startCall(isCaller, withVideo) {
     await peerConnection.setLocalDescription(offer);
     socket.emit('signal', { contact: currentContact, data: peerConnection.localDescription });
   }
+
+  // Safety net: if it never connects, don't leave the call stuck forever —
+  // that's what made every retry after the first one silently do nothing.
+  clearTimeout(connectTimeoutId);
+  connectTimeoutId = setTimeout(() => {
+    if (inCall && peerConnection && peerConnection.connectionState !== 'connected') {
+      endCall(true);
+      alert('Не удалось установить соединение. Попробуйте позвонить ещё раз.');
+    }
+  }, 20000);
 }
 
 document.getElementById('mute-btn').onclick = () => {
@@ -678,6 +698,7 @@ function showIncomingCallScreen(from, video) {
 }
 
 function endCall(notifyServer) {
+  clearTimeout(connectTimeoutId);
   inCall = false;
   remoteDescSet = false;
   pendingCandidates = [];
