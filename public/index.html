@@ -124,8 +124,8 @@
   #call-controls button:hover { background: #444; }
   #call-controls button.active-off { background: #dc2626; }
   #call-controls button.active-off:hover { background: #b91c1c; }
-  #hangup { background: #dc2626; }
-  #hangup:hover { background: #b91c1c; }
+  #hangup { background: #dc2626 !important; }
+  #hangup:hover { background: #b91c1c !important; }
 
   /* Call-type chooser */
   #call-type-modal {
@@ -202,8 +202,8 @@
 <div id="call-type-modal">
   <div id="call-type-box">
     <h2 style="margin-top:0;">Тип звонка</h2>
-    <button id="call-audio-btn">🎤 Только аудио</button>
-    <button id="call-video-btn">📹 Аудио и видео</button>
+    <button id="call-audio-btn" class="call-type-btn" style="background:#dc2626;">🏃 Только аудио</button>
+    <button id="call-video-btn" class="call-type-btn" style="background:#16a34a;">🧘 Аудио и видео</button>
     <button id="call-cancel-btn" style="background:none; color:#999;">Отмена</button>
   </div>
 </div>
@@ -215,9 +215,9 @@
     <video id="remote-video" autoplay playsinline></video>
     <video id="local-video" autoplay playsinline muted></video>
     <div id="call-controls">
-      <button id="mute-btn" title="Микрофон">🎤</button>
-      <button id="video-toggle-btn" title="Камера">📹</button>
-      <button id="hangup" title="Завершить">📴</button>
+      <button id="mute-btn" title="Микрофон" style="background:#555;">🫦</button>
+      <button id="video-toggle-btn" title="Камера" style="background:#7c3aed;">💅</button>
+      <button id="hangup" title="Завершить">🥲</button>
     </div>
   </div>
 </div>
@@ -243,19 +243,28 @@ let socket = null;
 let localStream = null;
 let peerConnection = null;
 let inCall = false;
+let remoteDescSet = false;
+let pendingCandidates = [];
 
 const config = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    // Public TURN server — needed when direct P2P fails (strict NAT/firewalls,
-    // which is common for connections crossing countries/ISPs)
+    // Public TURN servers — needed when direct P2P fails (strict NAT/firewalls,
+    // common for connections crossing countries/ISPs). Several providers as fallback,
+    // since free public TURN servers can be overloaded or flaky individually.
     {
-      urls: [
-        'turn:openrelay.metered.ca:80',
-        'turn:openrelay.metered.ca:443',
-        'turn:openrelay.metered.ca:443?transport=tcp'
-      ],
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
       username: 'openrelayproject',
       credential: 'openrelayproject'
     }
@@ -417,15 +426,33 @@ function connectSocket() {
     if (!peerConnection) return;
     if (data.type === 'offer') {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
+      remoteDescSet = true;
+      await flushPendingCandidates();
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       socket.emit('signal', { contact: from, data: peerConnection.localDescription });
     } else if (data.type === 'answer') {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
+      remoteDescSet = true;
+      await flushPendingCandidates();
     } else if (data.candidate) {
-      try { await peerConnection.addIceCandidate(new RTCIceCandidate(data)); } catch (e) {}
+      // If the remote description isn't set yet, queue the candidate —
+      // adding it too early throws and silently drops it, which is what
+      // was causing calls to randomly fail to connect.
+      if (remoteDescSet) {
+        try { await peerConnection.addIceCandidate(new RTCIceCandidate(data)); } catch (e) {}
+      } else {
+        pendingCandidates.push(data);
+      }
     }
   });
+
+  async function flushPendingCandidates() {
+    for (const c of pendingCandidates) {
+      try { await peerConnection.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+    }
+    pendingCandidates = [];
+  }
 
   socket.on('call-ended', () => {
     endCall(false);
@@ -498,14 +525,15 @@ async function startCall(isCaller, withVideo) {
   inCall = true;
   isMuted = false;
   isVideoOff = false;
+  remoteDescSet = false;
+  pendingCandidates = [];
   show('call-screen');
   document.getElementById('call-status').style.display = 'block';
   document.getElementById('call-status').textContent = isCaller ? 'Звоним...' : 'Соединяем...';
 
   const videoToggleBtn = document.getElementById('video-toggle-btn');
-  videoToggleBtn.style.display = withVideo ? 'flex' : 'none';
-  document.getElementById('mute-btn').textContent = '🎤';
-  videoToggleBtn.textContent = '📹';
+  document.getElementById('mute-btn').textContent = '🫦';
+  videoToggleBtn.textContent = '💅';
   document.getElementById('mute-btn').classList.remove('active-off');
   videoToggleBtn.classList.remove('active-off');
 
@@ -548,18 +576,45 @@ document.getElementById('mute-btn').onclick = () => {
   isMuted = !isMuted;
   localStream.getAudioTracks().forEach(t => t.enabled = !isMuted);
   const btn = document.getElementById('mute-btn');
-  btn.textContent = isMuted ? '🔇' : '🎤';
+  btn.textContent = isMuted ? '🔇' : '🫦';
   btn.classList.toggle('active-off', isMuted);
 };
 
-document.getElementById('video-toggle-btn').onclick = () => {
-  if (!localStream) return;
+// Handles both: toggling an existing camera track on/off, and turning the
+// camera on for the first time during an audio-only call (adds a new
+// video track and renegotiates the connection).
+document.getElementById('video-toggle-btn').onclick = async () => {
+  if (!localStream || !peerConnection) return;
   const videoTracks = localStream.getVideoTracks();
-  if (videoTracks.length === 0) return;
+
+  if (videoTracks.length === 0) {
+    // No camera track yet (this was an audio-only call) — add one now.
+    try {
+      const camStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const videoTrack = camStream.getVideoTracks()[0];
+      localStream.addTrack(videoTrack);
+      peerConnection.addTrack(videoTrack, localStream);
+
+      document.getElementById('local-video').style.display = 'block';
+      const btn = document.getElementById('video-toggle-btn');
+      btn.textContent = '💅';
+      btn.classList.remove('active-off');
+      isVideoOff = false;
+
+      // Adding a track after the call started requires renegotiating
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      socket.emit('signal', { contact: currentContact, data: peerConnection.localDescription });
+    } catch (err) {
+      alert('Не удалось включить камеру');
+    }
+    return;
+  }
+
   isVideoOff = !isVideoOff;
   videoTracks.forEach(t => t.enabled = !isVideoOff);
   const btn = document.getElementById('video-toggle-btn');
-  btn.textContent = isVideoOff ? '🚫' : '📹';
+  btn.textContent = isVideoOff ? '🚫' : '💅';
   btn.classList.toggle('active-off', isVideoOff);
   document.getElementById('local-video').style.display = isVideoOff ? 'none' : 'block';
 };
@@ -568,6 +623,8 @@ document.getElementById('hangup').onclick = () => endCall(true);
 
 function endCall(notifyServer) {
   inCall = false;
+  remoteDescSet = false;
+  pendingCandidates = [];
   if (peerConnection) { peerConnection.close(); peerConnection = null; }
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   document.getElementById('remote-video').srcObject = null;
