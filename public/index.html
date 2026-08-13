@@ -118,6 +118,12 @@
     position: absolute; top: 16px; left: 16px;
     background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 6px; font-size: 14px;
   }
+  #debug-status {
+    position: absolute; top: 16px; right: 16px;
+    background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 6px;
+    font-size: 11px; color: #9ca3af; font-family: monospace; text-align: right;
+    line-height: 1.4;
+  }
   #call-controls {
     position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
     display: flex; gap: 12px;
@@ -243,6 +249,7 @@
 <div id="call-screen" class="screen">
   <div id="call-screen-inner">
     <div id="call-status">Вызов...</div>
+    <div id="debug-status"></div>
     <video id="remote-video" autoplay playsinline></video>
     <video id="local-video" autoplay playsinline muted></video>
     <div id="call-controls">
@@ -471,6 +478,19 @@ async function setupPush() {
 function connectSocket() {
   socket = io();
 
+  socket.on('connect', () => {
+    console.log('[socket] connected', socket.id);
+  });
+  socket.on('disconnect', (reason) => {
+    console.log('[socket] disconnected:', reason);
+  });
+  socket.io.on('reconnect_attempt', (attempt) => {
+    console.log('[socket] reconnect attempt', attempt);
+  });
+  socket.io.on('reconnect', (attempt) => {
+    console.log('[socket] reconnected after', attempt, 'attempts');
+  });
+
   socket.on('chat-message', ({ sender, body, created_at }) => {
     if (sender === currentContact || sender === me) {
       addMessageToUI(sender, body, created_at);
@@ -610,6 +630,16 @@ document.getElementById('call-video-btn').onclick = () => {
 
 let connectTimeoutId = null;
 
+function updateDebugStatus() {
+  const el = document.getElementById('debug-status');
+  if (!peerConnection) { el.textContent = ''; return; }
+  el.innerHTML =
+    `ICE: ${peerConnection.iceConnectionState}<br>` +
+    `signal: ${peerConnection.signalingState}<br>` +
+    `gather: ${peerConnection.iceGatheringState}<br>` +
+    `socket: ${socket && socket.connected ? 'online' : 'offline'}`;
+}
+
 // ---------- Ringtone: procedurally generated bird chirping ----------
 // No audio file needed — synthesized live with the Web Audio API.
 let ringtoneCtx = null;
@@ -725,6 +755,8 @@ async function startCall(isCaller, withVideo) {
 
   peerConnection.onconnectionstatechange = () => {
     if (!peerConnection) return;
+    updateDebugStatus();
+    console.log('[pc] connectionState:', peerConnection.connectionState);
     if (peerConnection.connectionState === 'connected') {
       document.getElementById('call-status').style.display = 'none';
       clearTimeout(connectTimeoutId);
@@ -734,6 +766,23 @@ async function startCall(isCaller, withVideo) {
       document.getElementById('call-status').textContent = 'Связь прервалась...';
       stopRingtone();
     }
+  };
+
+  peerConnection.oniceconnectionstatechange = () => {
+    if (!peerConnection) return;
+    updateDebugStatus();
+    console.log('[pc] iceConnectionState:', peerConnection.iceConnectionState);
+  };
+
+  peerConnection.onsignalingstatechange = () => {
+    if (!peerConnection) return;
+    updateDebugStatus();
+    console.log('[pc] signalingState:', peerConnection.signalingState);
+  };
+
+  peerConnection.onicegatheringstatechange = () => {
+    if (!peerConnection) return;
+    updateDebugStatus();
   };
 
   // Process any signaling messages (offer/candidates) that arrived while
@@ -840,6 +889,7 @@ function endCall(notifyServer) {
   if (peerConnection) { peerConnection.close(); peerConnection = null; }
   if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
   document.getElementById('remote-video').srcObject = null;
+  document.getElementById('debug-status').textContent = '';
   document.getElementById('call-status').style.display = 'block';
   document.getElementById('call-status').textContent = 'Вызов...';
   if (notifyServer && currentContact) {
