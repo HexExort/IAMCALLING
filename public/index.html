@@ -13,16 +13,21 @@
 <title>I AM CALLING</title>
 <style>
   * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+  }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     background: #111;
     color: #eee;
     margin: 0;
     height: 100vh;
+    height: 100dvh;
     display: flex;
     flex-direction: column;
   }
-  .screen { display: none; flex: 1; flex-direction: column; }
+  .screen { display: none; flex: 1; flex-direction: column; min-height: 0; }
   .screen.active { display: flex; }
   .centered {
     align-items: center;
@@ -72,9 +77,11 @@
     align-items: center;
     justify-content: space-between;
     border-bottom: 1px solid #333;
+    flex-shrink: 0;
   }
   #messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 16px;
     display: flex;
@@ -101,6 +108,18 @@
     margin-top: 3px;
     text-align: right;
   }
+  .msg-system {
+    align-self: center;
+    max-width: 85%;
+    text-align: center;
+    color: #999;
+    font-size: 13px;
+    font-style: italic;
+    padding: 6px 14px;
+    background: #1c1c1c;
+    border-radius: 10px;
+    margin: 4px 0;
+  }
   #message-form {
     display: flex;
     gap: 8px;
@@ -109,6 +128,7 @@
     width: 100%;
     max-width: none;
     margin: 0;
+    flex-shrink: 0;
   }
   #message-input { flex: 1; }
   #call-btn { width: auto; background: #16a34a; }
@@ -122,7 +142,37 @@
   #local-video {
     position: absolute; bottom: 20px; right: 20px;
     width: 130px; border-radius: 10px; border: 2px solid #fff; background: #000;
+    cursor: grab; touch-action: none;
   }
+  #local-video.mirrored, #group-local-video.mirrored { transform: scaleX(-1); }
+  .shape-circle { clip-path: circle(50% at 50% 50%); border-radius: 50% !important; }
+  .shape-square { clip-path: none; border-radius: 10px !important; }
+  .shape-star {
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    border-radius: 0 !important;
+  }
+  .shape-oval-v { clip-path: ellipse(35% 50% at 50% 50%); border-radius: 0 !important; }
+  .shape-oval-h { clip-path: ellipse(50% 35% at 50% 50%); border-radius: 0 !important; }
+  .shape-triangle { clip-path: polygon(50% 0%, 0% 100%, 100% 100%); border-radius: 0 !important; }
+  .shape-hexagon {
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+    border-radius: 0 !important;
+  }
+  .shape-emoji { clip-path: none; border-radius: 0 !important; background: transparent !important; }
+
+  #shape-picker-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center; z-index: 30;
+    padding: 20px;
+  }
+  #shape-picker-modal.active { display: flex; }
+  #shape-picker-box {
+    background: #1a1a1a; border-radius: 12px; padding: 20px;
+    display: flex; flex-direction: column; gap: 10px; width: 300px;
+  }
+  .shape-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .shape-options button { background: #2a2a2a; padding: 12px 8px; font-size: 14px; }
+  .shape-options button:hover { background: #333; }
   #call-status {
     position: absolute; top: 16px; left: 16px;
     background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 6px; font-size: 14px;
@@ -172,20 +222,20 @@
     display: none; align-items: center; justify-content: center; z-index: 20;
   }
   #incoming-call-modal.active { display: flex; }
-  #incoming-call-box {
+  #incoming-call-box, .incoming-call-box-style {
     background: #1a1a1a; border-radius: 12px; padding: 24px;
     display: flex; flex-direction: column; gap: 16px; width: 280px; text-align: center;
   }
-  #incoming-call-box button { flex: 1; padding: 14px; }
+  #incoming-call-box button, .incoming-call-box-style button { flex: 1; padding: 14px; }
 
   /* Group call selection modal */
-  #group-select-modal, #group-invite-modal {
+  #group-select-modal, #group-invite-modal, #add-participant-modal {
     position: fixed; inset: 0; background: rgba(0,0,0,0.7);
     display: none; align-items: center; justify-content: center; z-index: 25;
     padding: 20px;
   }
-  #group-select-modal.active, #group-invite-modal.active { display: flex; }
-  #group-select-box {
+  #group-select-modal.active, #group-invite-modal.active, #add-participant-modal.active { display: flex; }
+  #group-select-box, .group-select-box-style {
     background: #1a1a1a; border-radius: 12px; padding: 20px;
     display: flex; flex-direction: column; gap: 10px; width: 320px; max-height: 85vh; overflow-y: auto;
   }
@@ -228,6 +278,7 @@
     position: absolute; bottom: 20px; right: 20px;
     width: 110px; height: 110px; border-radius: 50%; object-fit: cover;
     border: 2px solid #fff; background: #000; z-index: 5;
+    cursor: grab; touch-action: none;
   }
   .top-nav { display: flex; gap: 8px; align-items: center; }
   .top-nav button { padding: 6px 12px; font-size: 14px; }
@@ -314,9 +365,42 @@
   </div>
 </div>
 
+<!-- VIDEO SHAPE PICKER (tap your own video during a call) -->
+<div id="shape-picker-modal">
+  <div id="shape-picker-box">
+    <h2 style="margin-top:0;">Форма видео</h2>
+    <p style="color:#999; font-size:12px; margin-top:-6px;">Изменится и для остальных участников</p>
+    <div class="shape-options">
+      <button data-shape="circle">⚪ Круг</button>
+      <button data-shape="square">◻️ Квадрат</button>
+      <button data-shape="star">⭐ Звезда</button>
+      <button data-shape="oval-v">🥚 Овал верт.</button>
+      <button data-shape="oval-h">🏈 Овал гориз.</button>
+      <button data-shape="triangle">🔺 Треугольник</button>
+      <button data-shape="hexagon">⬡ Шестиугольник</button>
+      <button data-shape="emoji">🧌 Тролль</button>
+    </div>
+    <button id="shape-picker-close" style="background:none; color:#999;">Закрыть</button>
+  </div>
+</div>
+
+<!-- ADD PARTICIPANT TO ONGOING CALL MODAL -->
+<div id="add-participant-modal">
+  <div class="group-select-box-style">
+    <h2 style="margin-top:0;">Добавить в звонок</h2>
+    <div id="add-participant-list"></div>
+    <div style="display:flex; gap:8px;">
+      <input id="add-participant-input" type="text" placeholder="По нику" style="flex:1;">
+      <button id="add-participant-add-btn" style="width:auto;">Добавить</button>
+    </div>
+    <div id="add-participant-error" style="color:#f87171; font-size:13px; min-height:16px;"></div>
+    <button id="add-participant-close-btn" style="background:none; color:#999;">Закрыть</button>
+  </div>
+</div>
+
 <!-- GROUP CALL INCOMING INVITE MODAL -->
 <div id="group-invite-modal">
-  <div id="incoming-call-box">
+  <div class="incoming-call-box-style">
     <h2 id="group-invite-text" style="margin-top:0;">Групповой звонок</h2>
     <div style="display:flex; gap:12px;">
       <button id="group-decline-btn" style="background:#dc2626;">🥲 Отклонить</button>
@@ -391,6 +475,9 @@ function urlBase64ToUint8Array(base64String) {
   const rawData = atob(base64);
   return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
 }
+function clientRoomFor(a, b) {
+  return [a, b].sort().join('___');
+}
 
 // ---------- State ----------
 let me = null;
@@ -402,6 +489,8 @@ let inCall = false;
 let remoteDescSet = false;
 let pendingCandidates = [];
 let pendingSignals = [];
+let callIAmCaller = false;
+let callWasConnected = false;
 
 // ---------- Group call state ----------
 let currentCallId = null;
@@ -634,8 +723,8 @@ function connectSocket() {
     console.log('[socket] reconnected after', attempt, 'attempts');
   });
 
-  socket.on('chat-message', ({ sender, body, created_at }) => {
-    if (sender === currentContact || sender === me) {
+  socket.on('chat-message', ({ sender, body, created_at, room }) => {
+    if (currentContact && room === clientRoomFor(me, currentContact)) {
       addMessageToUI(sender, body, created_at);
     }
   });
@@ -681,6 +770,15 @@ function connectSocket() {
   socket.on('group-participant-left', ({ callId, username }) => {
     if (callId !== currentCallId) return;
     removeGroupParticipant(username);
+  });
+
+  socket.on('video-shape', ({ from, shape }) => {
+    applyShapeToElement(document.getElementById('remote-video'), shape);
+  });
+
+  socket.on('group-video-shape', ({ from, shape }) => {
+    const tile = document.getElementById('tile-' + from);
+    if (tile) applyShapeToElement(tile.querySelector('video'), shape);
   });
 }
 
@@ -758,6 +856,15 @@ document.getElementById('back-btn').onclick = async () => {
 
 function addMessageToUI(sender, body, createdAt) {
   const div = document.createElement('div');
+
+  if (sender === '__system__') {
+    div.className = 'msg-system';
+    div.textContent = body;
+    document.getElementById('messages').appendChild(div);
+    document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+    return;
+  }
+
   div.className = 'msg ' + (sender === me ? 'mine' : 'theirs');
 
   const textDiv = document.createElement('div');
@@ -913,6 +1020,8 @@ async function startCall(isCaller, withVideo) {
   isVideoOff = false;
   remoteDescSet = false;
   pendingCandidates = [];
+  callIAmCaller = isCaller;
+  callWasConnected = false;
   show('call-screen');
   document.getElementById('call-status').style.display = 'block';
   document.getElementById('call-status').textContent = isCaller ? 'Звоним...' : 'Соединяем...';
@@ -928,6 +1037,9 @@ async function startCall(isCaller, withVideo) {
   localStream = await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
   document.getElementById('local-video').srcObject = localStream;
   document.getElementById('local-video').style.display = withVideo ? 'block' : 'none';
+  resetLocalVideoPosition(document.getElementById('local-video'));
+  applyShapeToElement(document.getElementById('local-video'), 'square');
+  document.getElementById('local-video').classList.toggle('mirrored', currentFacingMode === 'user');
 
   peerConnection = new RTCPeerConnection(config);
   localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
@@ -953,6 +1065,7 @@ async function startCall(isCaller, withVideo) {
       document.getElementById('call-status').style.display = 'none';
       clearTimeout(connectTimeoutId);
       stopRingtone();
+      callWasConnected = true;
     } else if (['failed', 'disconnected', 'closed'].includes(peerConnection.connectionState)) {
       document.getElementById('call-status').style.display = 'block';
       document.getElementById('call-status').textContent = 'Связь прервалась...';
@@ -1027,6 +1140,7 @@ document.getElementById('video-toggle-btn').onclick = async () => {
       peerConnection.addTrack(videoTrack, localStream);
 
       document.getElementById('local-video').style.display = 'block';
+      document.getElementById('local-video').classList.toggle('mirrored', currentFacingMode === 'user');
       document.getElementById('camera-switch-btn').style.display = 'flex';
       const btn = document.getElementById('video-toggle-btn');
       btn.textContent = '💅';
@@ -1077,6 +1191,7 @@ document.getElementById('camera-switch-btn').onclick = async () => {
     oldTrack.stop();
     localStream.addTrack(newTrack);
     document.getElementById('local-video').srcObject = localStream;
+    document.getElementById('local-video').classList.toggle('mirrored', currentFacingMode === 'user');
   } catch (err) {
     // Some devices (most laptops) only have one camera and will fail here
     currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user'; // revert
@@ -1106,6 +1221,7 @@ function showIncomingCallScreen(from, video) {
 }
 
 function endCall(notifyServer) {
+  const wasInCall = inCall;
   clearTimeout(connectTimeoutId);
   stopRingtone();
   inCall = false;
@@ -1121,6 +1237,16 @@ function endCall(notifyServer) {
   if (notifyServer && currentContact) {
     socket.emit('call-ended', { contact: currentContact });
   }
+
+  // Leave a note in the chat about how the call went — only the caller
+  // does this, so we don't get a duplicate note from both sides.
+  if (wasInCall && callIAmCaller && currentContact) {
+    const note = callWasConnected
+      ? 'Надеюсь, разговор был полезен для тебя 😊'
+      : 'Ты не ответил на звонок, возможно ты упустил что-то важное 😢';
+    socket.emit('system-message', { contact: currentContact, body: note });
+  }
+
   show('chat-screen');
 }
 
@@ -1137,6 +1263,9 @@ async function setupGroupLocalMedia(withVideo) {
   const localVideoEl = document.getElementById('group-local-video');
   localVideoEl.srcObject = groupLocalStream;
   localVideoEl.style.display = withVideo ? 'block' : 'none';
+  resetLocalVideoPosition(localVideoEl);
+  applyShapeToElement(localVideoEl, 'circle');
+  localVideoEl.classList.toggle('mirrored', groupFacingMode === 'user');
 
   document.getElementById('group-mute-btn').textContent = '😸';
   document.getElementById('group-mute-btn').classList.remove('active-off');
@@ -1330,6 +1459,7 @@ document.getElementById('group-video-toggle-btn').onclick = async () => {
       groupLocalStream.addTrack(videoTrack);
       document.getElementById('group-local-video').srcObject = groupLocalStream;
       document.getElementById('group-local-video').style.display = 'block';
+      document.getElementById('group-local-video').classList.toggle('mirrored', groupFacingMode === 'user');
       document.getElementById('group-camera-switch-btn').style.display = 'flex';
       const btn = document.getElementById('group-video-toggle-btn');
       btn.textContent = '💅';
@@ -1375,6 +1505,7 @@ document.getElementById('group-camera-switch-btn').onclick = async () => {
     oldTrack.stop();
     groupLocalStream.addTrack(newTrack);
     document.getElementById('group-local-video').srcObject = groupLocalStream;
+    document.getElementById('group-local-video').classList.toggle('mirrored', groupFacingMode === 'user');
   } catch (err) {
     groupFacingMode = groupFacingMode === 'user' ? 'environment' : 'user'; // revert
     alert('Не удалось переключить камеру (возможно, на этом устройстве только одна камера)');
@@ -1463,15 +1594,181 @@ document.getElementById('group-select-video-btn').onclick = () => {
 };
 
 document.getElementById('group-add-btn').onclick = async () => {
-  const contact = prompt('Никнейм того, кого хотите добавить в звонок:');
-  if (!contact) return;
-  const res = await fetch(`/api/user-exists/${encodeURIComponent(contact)}`);
-  const { exists } = await res.json();
-  if (!exists) {
-    alert('Такого контакта нет');
+  document.getElementById('add-participant-error').textContent = '';
+  document.getElementById('add-participant-input').value = '';
+  await renderAddParticipantList();
+  document.getElementById('add-participant-modal').classList.add('active');
+};
+
+async function renderAddParticipantList() {
+  const listEl = document.getElementById('add-participant-list');
+  const res = await fetch('/api/contacts');
+  const contacts = await res.json();
+  const currentMembers = new Set(Array.from(groupPeers.keys()));
+  const candidates = contacts
+    .map(c => c.contact)
+    .filter(name => !currentMembers.has(name))
+    .slice(0, 5);
+
+  if (candidates.length === 0) {
+    listEl.innerHTML = '<div class="empty-state" style="padding:12px 0;">Нет недавних контактов</div>';
     return;
   }
+
+  listEl.innerHTML = '';
+  candidates.forEach(name => {
+    const item = document.createElement('div');
+    item.className = 'group-select-item';
+    item.innerHTML = `<span>${escapeHtml(name)}</span>`;
+    item.style.justifyContent = 'space-between';
+    item.onclick = () => inviteToOngoingCall(name);
+    listEl.appendChild(item);
+  });
+}
+
+function inviteToOngoingCall(contact) {
   socket.emit('invite-to-call', { callId: currentCallId, contact });
+  document.getElementById('add-participant-modal').classList.remove('active');
+}
+
+document.getElementById('add-participant-add-btn').onclick = async () => {
+  const input = document.getElementById('add-participant-input');
+  const name = input.value.trim();
+  const errorEl = document.getElementById('add-participant-error');
+  errorEl.textContent = '';
+  if (!name || name === me) return;
+  const res = await fetch(`/api/user-exists/${encodeURIComponent(name)}`);
+  const { exists } = await res.json();
+  if (!exists) {
+    errorEl.textContent = 'Такого контакта нет';
+    return;
+  }
+  inviteToOngoingCall(name);
+};
+
+document.getElementById('add-participant-close-btn').onclick = () => {
+  document.getElementById('add-participant-modal').classList.remove('active');
+};
+
+// =========================================================================
+// ---------- Draggable local video preview (both 1:1 and group) ----------
+// =========================================================================
+
+function makeDraggable(el, containerEl, onTap) {
+  let dragging = false;
+  let startX, startY, startLeft, startTop, moved;
+
+  el.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    moved = false;
+    el.setPointerCapture(e.pointerId);
+    const rect = el.getBoundingClientRect();
+    const containerRect = containerEl.getBoundingClientRect();
+    startLeft = rect.left - containerRect.left;
+    startTop = rect.top - containerRect.top;
+    startX = e.clientX;
+    startY = e.clientY;
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
+    el.style.left = startLeft + 'px';
+    el.style.top = startTop + 'px';
+    el.style.cursor = 'grabbing';
+  });
+
+  el.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) moved = true;
+    const containerRect = containerEl.getBoundingClientRect();
+    let newLeft = startLeft + dx;
+    let newTop = startTop + dy;
+    const maxLeft = containerRect.width - el.offsetWidth;
+    const maxTop = containerRect.height - el.offsetHeight;
+    newLeft = Math.max(0, Math.min(maxLeft, newLeft));
+    newTop = Math.max(0, Math.min(maxTop, newTop));
+    el.style.left = newLeft + 'px';
+    el.style.top = newTop + 'px';
+  });
+
+  el.addEventListener('pointerup', () => {
+    if (!dragging) return;
+    dragging = false;
+    el.style.cursor = 'grab';
+    if (!moved && onTap) onTap();
+  });
+}
+
+function resetLocalVideoPosition(el) {
+  el.style.left = 'auto';
+  el.style.top = 'auto';
+  el.style.right = '20px';
+  el.style.bottom = '20px';
+}
+
+makeDraggable(
+  document.getElementById('local-video'),
+  document.getElementById('call-screen-inner'),
+  () => openShapePicker('1to1')
+);
+makeDraggable(
+  document.getElementById('group-local-video'),
+  document.getElementById('group-call-inner'),
+  () => openShapePicker('group')
+);
+
+// =========================================================================
+// ---------- Video shape picker (applies to your own video for everyone) ----------
+// =========================================================================
+
+let shapePickerContext = null; // '1to1' or 'group'
+
+function applyShapeToElement(el, shape) {
+  el.classList.remove('shape-circle', 'shape-square', 'shape-star', 'shape-oval-v', 'shape-oval-h', 'shape-triangle', 'shape-hexagon', 'shape-emoji');
+  el.style.webkitMaskImage = '';
+  el.style.maskImage = '';
+
+  if (shape === 'emoji') {
+    // There's no official "orc" emoji in Unicode — using 🧌 (troll) as the
+    // closest equivalent creature-with-a-club-ish vibe.
+    el.classList.add('shape-emoji');
+    const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text x='50' y='82' font-size='95' text-anchor='middle'>🧌</text></svg>`;
+    const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+    el.style.webkitMaskImage = url;
+    el.style.maskImage = url;
+    el.style.webkitMaskSize = 'contain';
+    el.style.maskSize = 'contain';
+    el.style.webkitMaskRepeat = 'no-repeat';
+    el.style.maskRepeat = 'no-repeat';
+    el.style.webkitMaskPosition = 'center';
+    el.style.maskPosition = 'center';
+  } else {
+    el.classList.add('shape-' + shape);
+  }
+}
+
+function openShapePicker(context) {
+  shapePickerContext = context;
+  document.getElementById('shape-picker-modal').classList.add('active');
+}
+
+document.querySelectorAll('#shape-picker-box [data-shape]').forEach(btn => {
+  btn.onclick = () => {
+    const shape = btn.dataset.shape;
+    document.getElementById('shape-picker-modal').classList.remove('active');
+
+    if (shapePickerContext === '1to1') {
+      applyShapeToElement(document.getElementById('local-video'), shape);
+      if (currentContact) socket.emit('video-shape', { contact: currentContact, shape });
+    } else if (shapePickerContext === 'group') {
+      applyShapeToElement(document.getElementById('group-local-video'), shape);
+      if (currentCallId) socket.emit('group-video-shape', { callId: currentCallId, shape });
+    }
+  };
+});
+
+document.getElementById('shape-picker-close').onclick = () => {
+  document.getElementById('shape-picker-modal').classList.remove('active');
 };
 </script>
 
