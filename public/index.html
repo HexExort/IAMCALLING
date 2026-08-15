@@ -145,8 +145,10 @@
     cursor: grab; touch-action: none;
   }
   #local-video.mirrored, #group-local-video.mirrored { transform: scaleX(-1); }
+  /* Square gets a visible inset margin — otherwise, on a full-screen 1:1
+     remote video, an unclipped rectangle looks identical to "no shape". */
   .shape-circle { clip-path: circle(50% at 50% 50%); border-radius: 50% !important; }
-  .shape-square { clip-path: none; border-radius: 10px !important; }
+  .shape-square { clip-path: inset(12% round 16px); border-radius: 0 !important; }
   .shape-star {
     clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
     border-radius: 0 !important;
@@ -260,14 +262,13 @@
   }
   .group-tile {
     position: relative;
-    border-radius: 50%;
-    overflow: hidden;
     background: #222;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
   .group-tile video {
     width: 100%; height: 100%; object-fit: cover;
+    background: #000;
   }
   .group-tile-name {
     position: absolute; bottom: 8%; left: 50%; transform: translateX(-50%);
@@ -280,6 +281,33 @@
     border: 2px solid #fff; background: #000; z-index: 5;
     cursor: grab; touch-action: none;
   }
+
+  /* Group call reactions */
+  #group-reactions-layer {
+    position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 8;
+  }
+  .floating-reaction {
+    position: absolute;
+    bottom: 90px;
+    font-size: 40px;
+    animation: float-up 2.2s ease-out forwards;
+  }
+  @keyframes float-up {
+    0% { transform: translateY(0) scale(0.6); opacity: 0; }
+    15% { transform: translateY(-20px) scale(1.1); opacity: 1; }
+    100% { transform: translateY(-260px) scale(1); opacity: 0; }
+  }
+  #reaction-picker {
+    position: absolute; bottom: 88px; left: 50%; transform: translateX(-50%) translateY(10px);
+    background: #1a1a1a; border-radius: 30px; padding: 8px 10px;
+    display: none; gap: 4px; z-index: 15; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+  #reaction-picker.active { display: flex; }
+  #reaction-picker button {
+    width: 40px; height: 40px; border-radius: 50%; padding: 0;
+    font-size: 20px; background: transparent;
+  }
+  #reaction-picker button:hover { background: #2a2a2a; }
   .top-nav { display: flex; gap: 8px; align-items: center; }
   .top-nav button { padding: 6px 12px; font-size: 14px; }
 
@@ -451,11 +479,23 @@
   <div id="group-call-inner">
     <div id="group-call-status">Соединяем...</div>
     <div id="group-tiles"></div>
+    <div id="group-reactions-layer"></div>
     <video id="group-local-video" autoplay playsinline muted></video>
+    <div id="reaction-picker">
+      <button data-emoji="👍">👍</button>
+      <button data-emoji="❤️">❤️</button>
+      <button data-emoji="😂">😂</button>
+      <button data-emoji="😮">😮</button>
+      <button data-emoji="👏">👏</button>
+      <button data-emoji="🎉">🎉</button>
+      <button data-emoji="🤔">🤔</button>
+      <button data-emoji="👋">👋</button>
+    </div>
     <div id="group-call-controls" class="call-controls-bar">
       <button id="group-mute-btn" title="Микрофон" class="ctrl-green">😸</button>
       <button id="group-video-toggle-btn" title="Камера" class="ctrl-green">💅</button>
       <button id="group-camera-switch-btn" title="Сменить камеру" class="ctrl-neutral">🔄</button>
+      <button id="group-reaction-btn" title="Реакция" class="ctrl-neutral">😊</button>
       <button id="group-add-btn" title="Добавить участника" class="ctrl-neutral">➕</button>
       <button id="group-hangup" title="Завершить">🥲</button>
     </div>
@@ -590,7 +630,7 @@ async function loadContacts() {
     const div = document.createElement('div');
     div.className = 'contact-item';
     const prefix = c.lastSender === me ? 'Вы: ' : '';
-    div.innerHTML = `<div class="contact-name">${escapeHtml(c.contact)}</div><div class="contact-preview">${escapeHtml(prefix + (c.lastBody || ''))}</div>`;
+    div.innerHTML = `<div class="contact-name">${escapeHtml(c.contact)}</div><div class="contact-preview">${escapeHtml(prefix + previewText(c))}</div>`;
 
     let longPressTimer = null;
     let longPressFired = false;
@@ -632,6 +672,16 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
+}
+
+function previewText(c) {
+  if (!c.lastBody) return '';
+  const audMatch = c.lastBody.match(/^§AUD:([^§]+)§([\s\S]*)$/);
+  if (audMatch) {
+    const [, audience, text] = audMatch;
+    return audience === me ? text : '';
+  }
+  return c.lastBody;
 }
 
 async function openChat(contact) {
@@ -780,6 +830,10 @@ function connectSocket() {
     const tile = document.getElementById('tile-' + from);
     if (tile) applyShapeToElement(tile.querySelector('video'), shape);
   });
+
+  socket.on('group-reaction', ({ from, emoji }) => {
+    showFloatingReaction(from, emoji);
+  });
 }
 
 // NOTE: these two must be in the top-level (global) scope, not nested
@@ -858,8 +912,18 @@ function addMessageToUI(sender, body, createdAt) {
   const div = document.createElement('div');
 
   if (sender === '__system__') {
+    // System messages can be addressed to just one side of the chat
+    // (e.g. "you missed a call" vs "please wait, they'll answer") using
+    // a "§AUD:username§text" prefix. If it's not meant for me, skip it.
+    let text = body;
+    const audMatch = body.match(/^§AUD:([^§]+)§([\s\S]*)$/);
+    if (audMatch) {
+      const [, audience, actualText] = audMatch;
+      if (audience !== me) return;
+      text = actualText;
+    }
     div.className = 'msg-system';
-    div.textContent = body;
+    div.textContent = text;
     document.getElementById('messages').appendChild(div);
     document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
     return;
@@ -1239,12 +1303,22 @@ function endCall(notifyServer) {
   }
 
   // Leave a note in the chat about how the call went — only the caller
-  // does this, so we don't get a duplicate note from both sides.
+  // does this, so we don't get a duplicate note from both sides. Missed
+  // calls get a different message per side (audience-tagged so only the
+  // intended person sees it in their view of the shared chat).
   if (wasInCall && callIAmCaller && currentContact) {
-    const note = callWasConnected
-      ? 'Надеюсь, разговор был полезен для тебя 😊'
-      : 'Ты не ответил на звонок, возможно ты упустил что-то важное 😢';
-    socket.emit('system-message', { contact: currentContact, body: note });
+    if (callWasConnected) {
+      socket.emit('system-message', { contact: currentContact, body: 'Надеюсь, разговор был полезен для тебя 😊' });
+    } else {
+      socket.emit('system-message', {
+        contact: currentContact,
+        body: `§AUD:${currentContact}§Ты не ответил на звонок, возможно ты упустил что-то важное 😢`
+      });
+      socket.emit('system-message', {
+        contact: currentContact,
+        body: `§AUD:${me}§Подожди немного и тебе обязательно ответят 😊`
+      });
+    }
   }
 
   show('chat-screen');
@@ -1343,6 +1417,7 @@ function addGroupTile(username) {
   tile.className = 'group-tile';
   tile.id = 'tile-' + username;
   tile.innerHTML = `<video autoplay playsinline></video><div class="group-tile-name">${escapeHtml(username)}</div>`;
+  applyShapeToElement(tile.querySelector('video'), 'circle');
   document.getElementById('group-tiles').appendChild(tile);
   relayoutGroupTiles();
   return tile;
@@ -1599,6 +1674,31 @@ document.getElementById('group-add-btn').onclick = async () => {
   await renderAddParticipantList();
   document.getElementById('add-participant-modal').classList.add('active');
 };
+
+// ---------- Group call: emoji reactions ----------
+document.getElementById('group-reaction-btn').onclick = () => {
+  document.getElementById('reaction-picker').classList.toggle('active');
+};
+
+document.querySelectorAll('#reaction-picker [data-emoji]').forEach(btn => {
+  btn.onclick = () => {
+    const emoji = btn.dataset.emoji;
+    document.getElementById('reaction-picker').classList.remove('active');
+    if (currentCallId) socket.emit('group-reaction', { callId: currentCallId, emoji });
+    showFloatingReaction(me, emoji);
+  };
+});
+
+function showFloatingReaction(username, emoji) {
+  const layer = document.getElementById('group-reactions-layer');
+  const span = document.createElement('span');
+  span.className = 'floating-reaction';
+  span.textContent = emoji;
+  // Spread reactions horizontally at random so several don't stack exactly
+  span.style.left = (10 + Math.random() * 70) + '%';
+  layer.appendChild(span);
+  setTimeout(() => span.remove(), 2300);
+}
 
 async function renderAddParticipantList() {
   const listEl = document.getElementById('add-participant-list');
