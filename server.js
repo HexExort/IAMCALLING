@@ -174,6 +174,7 @@ app.delete('/api/messages/:contact', async (req, res) => {
 // --- Socket.io: chat + WebRTC signaling ---
 // Track which socket belongs to which logged-in username
 const onlineUsers = new Map(); // username -> socket.id
+const groupCalls = new Map(); // callId -> { members: Set<username>, video: boolean }
 
 io.on('connection', (socket) => {
   const session = socket.request.session;
@@ -242,9 +243,97 @@ io.on('connection', (socket) => {
     socket.to(room).emit('call-ended');
   });
 
+  // --- Group calls (mesh: everyone connects to everyone directly) ---
+  // callId -> { members: Set<username>, video: boolean }
+  const MAX_GROUP_SIZE = 8;
+
+  function groupRoom(callId) {
+    return `call:${callId}`;
+  }
+
+  socket.on('start-group-call', ({ contacts, video }, callback) => {
+    const callId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    groupCalls.set(callId, { members: new Set([username]), video: !!video });
+    socket.join(groupRoom(callId));
+    socket.data.groupCallId = callId;
+
+    (contacts || []).forEach(contact => {
+      const targetSocketId = onlineUsers.get(contact);
+      if (targetSocketId) {
+        io.to(targetSocketId).emit('group-call-invite', { callId, from: username, video: !!video });
+      } else {
+        sendPushToUser(contact, { type: 'call', from: username });
+      }
+    });
+
+    if (typeof callback === 'function') callback({ callId });
+  });
+
+  socket.on('invite-to-call', ({ callId, contact }) => {
+    const call = groupCalls.get(callId);
+    if (!call || !call.members.has(username)) return;
+    if (call.members.size >= MAX_GROUP_SIZE) return;
+    const targetSocketId = onlineUsers.get(contact);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('group-call-invite', { callId, from: username, video: call.video });
+    } else {
+      sendPushToUser(contact, { type: 'call', from: username });
+    }
+  });
+
+  socket.on('join-group-call', ({ callId }, callback) => {
+    const call = groupCalls.get(callId);
+    if (!call) {
+      if (typeof callback === 'function') callback({ error: 'Звонок уже завершён' });
+      return;
+    }
+    if (call.members.size >= MAX_GROUP_SIZE && !call.members.has(username)) {
+      if (typeof callback === 'function') callback({ error: 'В звонке уже максимум участников (8)' });
+      return;
+    }
+
+    const existing = Array.from(call.members).filter(u => u !== username);
+    call.members.add(username);
+    socket.join(groupRoom(callId));
+    socket.data.groupCallId = callId;
+
+    if (typeof callback === 'function') {
+      callback({ participants: existing, video: call.video });
+    }
+    socket.to(groupRoom(callId)).emit('group-participant-joined', { callId, username });
+  });
+
+  socket.on('group-signal', ({ callId, to, data }) => {
+    const targetSocketId = onlineUsers.get(to);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('group-signal', { callId, from: username, data });
+    }
+  });
+
+  socket.on('leave-group-call', ({ callId }) => {
+    leaveGroupCall(socket, username, callId);
+  });
+
+  function leaveGroupCall(socket, username, callId) {
+    const call = groupCalls.get(callId);
+    if (!call) return;
+    call.members.delete(username);
+    socket.leave(groupRoom(callId));
+    socket.to(groupRoom(callId)).emit('group-participant-left', { callId, username });
+    if (call.members.size === 0) {
+      groupCalls.delete(callId);
+    }
+    if (socket.data.groupCallId === callId) {
+      socket.data.groupCallId = null;
+    }
+  }
+
   socket.on('disconnect', () => {
     if (onlineUsers.get(username) === socket.id) {
       onlineUsers.delete(username);
+    }
+    if (socket.data.groupCallId) {
+      leaveGroupCall(socket, username, socket.data.groupCallId);
     }
   });
 });
