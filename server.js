@@ -332,6 +332,11 @@ io.on('connection', (socket) => {
     socket.to(groupRoom(callId)).emit('group-video-shape', { from: username, shape });
   });
 
+  // Relay a quick emoji reaction to everyone else in a group call
+  socket.on('group-reaction', ({ callId, emoji }) => {
+    socket.to(groupRoom(callId)).emit('group-reaction', { from: username, emoji });
+  });
+
   socket.on('leave-group-call', ({ callId }) => {
     leaveGroupCall(socket, username, callId);
   });
