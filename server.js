@@ -199,7 +199,7 @@ io.on('connection', (socket) => {
       'INSERT INTO messages (room, sender, body) VALUES ($1, $2, $3)',
       [room, username, body]
     );
-    io.to(room).emit('chat-message', { sender: username, body, created_at: new Date() });
+    io.to(room).emit('chat-message', { sender: username, body, created_at: new Date(), room });
 
     // Push notification if the contact isn't online
     if (!onlineUsers.has(contact)) {
@@ -209,6 +209,17 @@ io.on('connection', (socket) => {
         body: body.slice(0, 100)
       });
     }
+  });
+
+  // Auto-generated notes about missed/finished calls — shown in the chat
+  // thread but not pushed as a notification and not attributed to a person.
+  socket.on('system-message', async ({ contact, body }) => {
+    const room = roomFor(username, contact);
+    await pool.query(
+      'INSERT INTO messages (room, sender, body) VALUES ($1, $2, $3)',
+      [room, '__system__', body]
+    );
+    io.to(room).emit('chat-message', { sender: '__system__', body, created_at: new Date(), room });
   });
 
   // --- WebRTC call signaling ---
@@ -241,6 +252,12 @@ io.on('connection', (socket) => {
   socket.on('call-ended', ({ contact }) => {
     const room = roomFor(username, contact);
     socket.to(room).emit('call-ended');
+  });
+
+  // Relay a video shape choice (circle/star/square/etc) to the other side of a 1:1 call
+  socket.on('video-shape', ({ contact, shape }) => {
+    const room = roomFor(username, contact);
+    socket.to(room).emit('video-shape', { from: username, shape });
   });
 
   // --- Group calls (mesh: everyone connects to everyone directly) ---
@@ -308,6 +325,11 @@ io.on('connection', (socket) => {
     if (targetSocketId) {
       io.to(targetSocketId).emit('group-signal', { callId, from: username, data });
     }
+  });
+
+  // Relay a video shape choice to everyone else in a group call
+  socket.on('group-video-shape', ({ callId, shape }) => {
+    socket.to(groupRoom(callId)).emit('group-video-shape', { from: username, shape });
   });
 
   socket.on('leave-group-call', ({ callId }) => {
