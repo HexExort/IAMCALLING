@@ -112,6 +112,8 @@
   }
   #message-input { flex: 1; }
   #call-btn { width: auto; background: #16a34a; }
+  #group-call-btn { width: auto; padding: 12px 14px; background: #7c3aed; }
+  #group-call-btn:hover { background: #6d28d9; }
   #call-btn:hover { background: #15803d; }
 
   /* Call screen */
@@ -131,25 +133,25 @@
     font-size: 11px; color: #9ca3af; font-family: monospace; text-align: right;
     line-height: 1.4;
   }
-  #call-controls {
+  #call-controls, .call-controls-bar {
     position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
     display: flex; gap: 12px;
   }
-  #call-controls button {
+  #call-controls button, .call-controls-bar button {
     width: 52px; height: 52px; border-radius: 50%; padding: 0;
     font-size: 20px; display: flex; align-items: center; justify-content: center;
     background: #333;
   }
-  #call-controls button:hover { background: #444; }
-  #call-controls button.active-off { background: #dc2626; }
-  #call-controls button.active-off:hover { background: #b91c1c; }
-  #call-controls button.ctrl-green { background: #16a34a; }
-  #call-controls button.ctrl-green:hover { background: #15803d; }
-  #call-controls button.ctrl-neutral { background: #555; }
-  #call-controls button.ctrl-neutral:hover { background: #444; }
-  #call-controls button.ctrl-green.active-off { background: #dc2626; }
-  #call-controls button.ctrl-green.active-off:hover { background: #b91c1c; }
-  #hangup { background: #dc2626 !important; }
+  #call-controls button:hover, .call-controls-bar button:hover { background: #444; }
+  #call-controls button.active-off, .call-controls-bar button.active-off { background: #dc2626; }
+  #call-controls button.active-off:hover, .call-controls-bar button.active-off:hover { background: #b91c1c; }
+  #call-controls button.ctrl-green, .call-controls-bar button.ctrl-green { background: #16a34a; }
+  #call-controls button.ctrl-green:hover, .call-controls-bar button.ctrl-green:hover { background: #15803d; }
+  #call-controls button.ctrl-neutral, .call-controls-bar button.ctrl-neutral { background: #555; }
+  #call-controls button.ctrl-neutral:hover, .call-controls-bar button.ctrl-neutral:hover { background: #444; }
+  #call-controls button.ctrl-green.active-off, .call-controls-bar button.ctrl-green.active-off { background: #dc2626; }
+  #call-controls button.ctrl-green.active-off:hover, .call-controls-bar button.ctrl-green.active-off:hover { background: #b91c1c; }
+  #hangup, #group-hangup { background: #dc2626 !important; }
   #hangup:hover { background: #b91c1c !important; }
 
   /* Call-type chooser */
@@ -175,6 +177,58 @@
     display: flex; flex-direction: column; gap: 16px; width: 280px; text-align: center;
   }
   #incoming-call-box button { flex: 1; padding: 14px; }
+
+  /* Group call selection modal */
+  #group-select-modal, #group-invite-modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: none; align-items: center; justify-content: center; z-index: 25;
+    padding: 20px;
+  }
+  #group-select-modal.active, #group-invite-modal.active { display: flex; }
+  #group-select-box {
+    background: #1a1a1a; border-radius: 12px; padding: 20px;
+    display: flex; flex-direction: column; gap: 10px; width: 320px; max-height: 85vh; overflow-y: auto;
+  }
+  #group-select-list { display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; }
+  .group-select-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 8px; background: #222; cursor: pointer;
+  }
+  .group-select-item.checked { background: #1e3a5f; }
+  .group-select-item input { width: auto; }
+
+  /* Group call tiles */
+  #group-call-inner { position: relative; width: 100%; height: 100%; overflow: hidden; }
+  #group-call-status {
+    position: absolute; top: 16px; left: 16px; z-index: 5;
+    background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 6px; font-size: 14px;
+  }
+  #group-tiles {
+    width: 100%; height: 100%;
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+    gap: 10px; padding: 10px;
+  }
+  .group-tile {
+    position: relative;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #222;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .group-tile video {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .group-tile-name {
+    position: absolute; bottom: 8%; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.55); padding: 2px 10px; border-radius: 10px;
+    font-size: 12px; white-space: nowrap;
+  }
+  #group-local-video {
+    position: absolute; bottom: 20px; right: 20px;
+    width: 110px; height: 110px; border-radius: 50%; object-fit: cover;
+    border: 2px solid #fff; background: #000; z-index: 5;
+  }
   .top-nav { display: flex; gap: 8px; align-items: center; }
   .top-nav button { padding: 6px 12px; font-size: 14px; }
 
@@ -229,13 +283,46 @@
       <button id="back-btn">← Назад</button>
       <span id="chat-with"></span>
     </div>
-    <button id="call-btn">📞 Позвонить</button>
+    <div style="display:flex; gap:6px;">
+      <button id="group-call-btn" title="Групповой звонок">👥</button>
+      <button id="call-btn">📞 Позвонить</button>
+    </div>
   </div>
   <div id="messages"></div>
   <form id="message-form">
     <input id="message-input" type="text" placeholder="Сообщение..." autocomplete="off">
     <button type="submit">Отправить</button>
   </form>
+</div>
+
+<!-- GROUP CALL PARTICIPANT SELECTION MODAL -->
+<div id="group-select-modal">
+  <div id="group-select-box">
+    <h2 style="margin-top:0;">Групповой звонок</h2>
+    <p style="color:#999; font-size:13px; margin-top:-8px;">Выберите участников (до 7 человек + вы)</p>
+    <div id="group-select-list"></div>
+    <div style="display:flex; gap:8px;">
+      <input id="group-select-input" type="text" placeholder="Добавить по нику" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault(); document.getElementById('group-select-add-btn').click();}">
+      <button id="group-select-add-btn" style="width:auto;">+</button>
+    </div>
+    <div id="group-select-error" style="color:#f87171; font-size:13px; min-height:16px;"></div>
+    <div style="display:flex; gap:12px;">
+      <button id="group-select-audio-btn" style="background:#dc2626; flex:1;">🏃 Аудио</button>
+      <button id="group-select-video-btn" style="background:#16a34a; flex:1;">🧘 Видео</button>
+    </div>
+    <button id="group-select-cancel-btn" style="background:none; color:#999;">Отмена</button>
+  </div>
+</div>
+
+<!-- GROUP CALL INCOMING INVITE MODAL -->
+<div id="group-invite-modal">
+  <div id="incoming-call-box">
+    <h2 id="group-invite-text" style="margin-top:0;">Групповой звонок</h2>
+    <div style="display:flex; gap:12px;">
+      <button id="group-decline-btn" style="background:#dc2626;">🥲 Отклонить</button>
+      <button id="group-accept-btn" style="background:#16a34a;">✅ Присоединиться</button>
+    </div>
+  </div>
 </div>
 
 <!-- INCOMING CALL MODAL (non-blocking, unlike native confirm()) -->
@@ -275,6 +362,22 @@
   </div>
 </div>
 
+<!-- GROUP CALL SCREEN -->
+<div id="group-call-screen" class="screen">
+  <div id="group-call-inner">
+    <div id="group-call-status">Соединяем...</div>
+    <div id="group-tiles"></div>
+    <video id="group-local-video" autoplay playsinline muted></video>
+    <div id="group-call-controls" class="call-controls-bar">
+      <button id="group-mute-btn" title="Микрофон" class="ctrl-green">😸</button>
+      <button id="group-video-toggle-btn" title="Камера" class="ctrl-green">💅</button>
+      <button id="group-camera-switch-btn" title="Сменить камеру" class="ctrl-neutral">🔄</button>
+      <button id="group-add-btn" title="Добавить участника" class="ctrl-neutral">➕</button>
+      <button id="group-hangup" title="Завершить">🥲</button>
+    </div>
+  </div>
+</div>
+
 <script src="/socket.io/socket.io.js"></script>
 <script>
 // ---------- Helpers ----------
@@ -299,6 +402,17 @@ let inCall = false;
 let remoteDescSet = false;
 let pendingCandidates = [];
 let pendingSignals = [];
+
+// ---------- Group call state ----------
+let currentCallId = null;
+let groupLocalStream = null;
+let groupPeers = new Map();          // username -> RTCPeerConnection
+let groupRemoteDescSet = new Map();  // username -> boolean
+let groupPendingCandidates = new Map(); // username -> [candidates]
+let groupIsMuted = false;
+let groupIsVideoOff = false;
+let groupHasVideo = false;
+let groupFacingMode = 'user';
 
 const config = {
   iceServers: [
@@ -544,6 +658,29 @@ function connectSocket() {
     document.getElementById('incoming-call-modal').classList.remove('active');
     pendingSignals = [];
     if (inCall) endCall(false);
+  });
+
+  // --- Group calls ---
+  socket.on('group-call-invite', ({ callId, from, video }) => {
+    showGroupInviteScreen(callId, from, !!video);
+  });
+
+  socket.on('group-participant-joined', ({ callId, username }) => {
+    if (callId !== currentCallId) return;
+    // A newcomer will send us an offer shortly — make sure a peer
+    // connection exists and is ready to receive it (passive side).
+    getOrCreateGroupPeer(username);
+    addGroupTile(username);
+  });
+
+  socket.on('group-signal', async ({ callId, from, data }) => {
+    if (callId !== currentCallId) return;
+    await processGroupSignal(from, data);
+  });
+
+  socket.on('group-participant-left', ({ callId, username }) => {
+    if (callId !== currentCallId) return;
+    removeGroupParticipant(username);
   });
 }
 
@@ -986,6 +1123,356 @@ function endCall(notifyServer) {
   }
   show('chat-screen');
 }
+
+// =========================================================================
+// ---------- Group calls (mesh: everyone connects to everyone) ----------
+// =========================================================================
+
+async function setupGroupLocalMedia(withVideo) {
+  groupHasVideo = withVideo;
+  groupIsMuted = false;
+  groupIsVideoOff = false;
+  groupLocalStream = await navigator.mediaDevices.getUserMedia({ video: withVideo, audio: true });
+
+  const localVideoEl = document.getElementById('group-local-video');
+  localVideoEl.srcObject = groupLocalStream;
+  localVideoEl.style.display = withVideo ? 'block' : 'none';
+
+  document.getElementById('group-mute-btn').textContent = '😸';
+  document.getElementById('group-mute-btn').classList.remove('active-off');
+  document.getElementById('group-video-toggle-btn').textContent = withVideo ? '💅' : '💅';
+  document.getElementById('group-video-toggle-btn').classList.remove('active-off');
+  document.getElementById('group-camera-switch-btn').style.display = withVideo ? 'flex' : 'none';
+}
+
+function getOrCreateGroupPeer(username) {
+  if (groupPeers.has(username)) return groupPeers.get(username);
+
+  const pc = new RTCPeerConnection(config);
+  groupRemoteDescSet.set(username, false);
+  groupPendingCandidates.set(username, []);
+
+  if (groupLocalStream) {
+    groupLocalStream.getTracks().forEach(track => pc.addTrack(track, groupLocalStream));
+  }
+
+  pc.ontrack = (event) => {
+    const tile = addGroupTile(username);
+    const videoEl = tile.querySelector('video');
+    videoEl.srcObject = event.streams[0];
+  };
+
+  pc.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit('group-signal', { callId: currentCallId, to: username, data: event.candidate });
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    console.log('[group-pc]', username, pc.connectionState);
+  };
+
+  groupPeers.set(username, pc);
+  return pc;
+}
+
+async function processGroupSignal(from, data) {
+  const pc = getOrCreateGroupPeer(from);
+  if (data.type === 'offer') {
+    await pc.setRemoteDescription(new RTCSessionDescription(data));
+    groupRemoteDescSet.set(from, true);
+    await flushGroupPendingCandidates(from);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.emit('group-signal', { callId: currentCallId, to: from, data: pc.localDescription });
+  } else if (data.type === 'answer') {
+    await pc.setRemoteDescription(new RTCSessionDescription(data));
+    groupRemoteDescSet.set(from, true);
+    await flushGroupPendingCandidates(from);
+  } else if (data.candidate) {
+    if (groupRemoteDescSet.get(from)) {
+      try { await pc.addIceCandidate(new RTCIceCandidate(data)); } catch (e) {}
+    } else {
+      groupPendingCandidates.get(from).push(data);
+    }
+  }
+}
+
+async function flushGroupPendingCandidates(username) {
+  const pc = groupPeers.get(username);
+  const queued = groupPendingCandidates.get(username) || [];
+  for (const c of queued) {
+    try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch (e) {}
+  }
+  groupPendingCandidates.set(username, []);
+}
+
+function addGroupTile(username) {
+  let tile = document.getElementById('tile-' + username);
+  if (tile) return tile;
+  tile = document.createElement('div');
+  tile.className = 'group-tile';
+  tile.id = 'tile-' + username;
+  tile.innerHTML = `<video autoplay playsinline></video><div class="group-tile-name">${escapeHtml(username)}</div>`;
+  document.getElementById('group-tiles').appendChild(tile);
+  relayoutGroupTiles();
+  return tile;
+}
+
+function removeGroupParticipant(username) {
+  const pc = groupPeers.get(username);
+  if (pc) pc.close();
+  groupPeers.delete(username);
+  groupRemoteDescSet.delete(username);
+  groupPendingCandidates.delete(username);
+  const tile = document.getElementById('tile-' + username);
+  if (tile) tile.remove();
+  relayoutGroupTiles();
+}
+
+function relayoutGroupTiles() {
+  const count = document.querySelectorAll('.group-tile').length;
+  let size;
+  if (count <= 1) size = '62vmin';
+  else if (count === 2) size = '46vmin';
+  else if (count <= 4) size = '36vmin';
+  else if (count <= 6) size = '28vmin';
+  else size = '22vmin';
+  document.querySelectorAll('.group-tile').forEach(t => {
+    t.style.width = size;
+    t.style.height = size;
+  });
+}
+
+async function startGroupCall(contacts, withVideo) {
+  document.getElementById('group-select-modal').classList.remove('active');
+  await setupGroupLocalMedia(withVideo);
+  show('group-call-screen');
+  document.getElementById('group-call-status').style.display = 'block';
+  document.getElementById('group-call-status').textContent = 'Ожидаем участников...';
+  socket.emit('start-group-call', { contacts, video: withVideo }, (response) => {
+    currentCallId = response.callId;
+  });
+}
+
+function showGroupInviteScreen(callId, from, video) {
+  document.getElementById('group-invite-text').textContent =
+    `${video ? 'Групповой видеозвонок' : 'Групповой аудиозвонок'} от ${from}`;
+  document.getElementById('group-invite-modal').classList.add('active');
+
+  document.getElementById('group-accept-btn').onclick = async () => {
+    document.getElementById('group-invite-modal').classList.remove('active');
+    await setupGroupLocalMedia(video);
+    show('group-call-screen');
+    document.getElementById('group-call-status').style.display = 'block';
+    document.getElementById('group-call-status').textContent = 'Соединяем...';
+
+    socket.emit('join-group-call', { callId }, async (response) => {
+      if (response.error) {
+        alert(response.error);
+        endGroupCall(false);
+        return;
+      }
+      currentCallId = callId;
+      // We're the newcomer — initiate a connection to each existing participant
+      for (const participant of response.participants) {
+        addGroupTile(participant);
+        const pc = getOrCreateGroupPeer(participant);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('group-signal', { callId, to: participant, data: pc.localDescription });
+      }
+      document.getElementById('group-call-status').style.display = 'none';
+    });
+  };
+
+  document.getElementById('group-decline-btn').onclick = () => {
+    document.getElementById('group-invite-modal').classList.remove('active');
+  };
+}
+
+function endGroupCall(notifyServer) {
+  if (notifyServer && currentCallId) {
+    socket.emit('leave-group-call', { callId: currentCallId });
+  }
+  groupPeers.forEach(pc => pc.close());
+  groupPeers.clear();
+  groupRemoteDescSet.clear();
+  groupPendingCandidates.clear();
+  if (groupLocalStream) { groupLocalStream.getTracks().forEach(t => t.stop()); groupLocalStream = null; }
+  document.getElementById('group-tiles').innerHTML = '';
+  document.getElementById('group-local-video').srcObject = null;
+  currentCallId = null;
+  show('contact-screen');
+  loadContacts();
+}
+
+document.getElementById('group-hangup').onclick = () => endGroupCall(true);
+
+document.getElementById('group-mute-btn').onclick = () => {
+  if (!groupLocalStream) return;
+  groupIsMuted = !groupIsMuted;
+  groupLocalStream.getAudioTracks().forEach(t => t.enabled = !groupIsMuted);
+  const btn = document.getElementById('group-mute-btn');
+  btn.textContent = groupIsMuted ? '🫦' : '😸';
+  btn.classList.toggle('active-off', groupIsMuted);
+};
+
+document.getElementById('group-video-toggle-btn').onclick = async () => {
+  if (!groupLocalStream) return;
+  const videoTracks = groupLocalStream.getVideoTracks();
+
+  if (videoTracks.length === 0) {
+    // Audio-only group call — turn the camera on for the first time
+    try {
+      const camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: groupFacingMode } });
+      const videoTrack = camStream.getVideoTracks()[0];
+      groupLocalStream.addTrack(videoTrack);
+      document.getElementById('group-local-video').srcObject = groupLocalStream;
+      document.getElementById('group-local-video').style.display = 'block';
+      document.getElementById('group-camera-switch-btn').style.display = 'flex';
+      const btn = document.getElementById('group-video-toggle-btn');
+      btn.textContent = '💅';
+      btn.classList.remove('active-off');
+      groupIsVideoOff = false;
+      groupHasVideo = true;
+
+      // Add the new track to every existing peer connection and renegotiate
+      for (const [username, pc] of groupPeers.entries()) {
+        pc.addTrack(videoTrack, groupLocalStream);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('group-signal', { callId: currentCallId, to: username, data: pc.localDescription });
+      }
+    } catch (err) {
+      alert('Не удалось включить камеру');
+    }
+    return;
+  }
+
+  groupIsVideoOff = !groupIsVideoOff;
+  videoTracks.forEach(t => t.enabled = !groupIsVideoOff);
+  const btn = document.getElementById('group-video-toggle-btn');
+  btn.textContent = groupIsVideoOff ? '😾' : '💅';
+  btn.classList.toggle('active-off', groupIsVideoOff);
+  document.getElementById('group-local-video').style.display = groupIsVideoOff ? 'none' : 'block';
+};
+
+document.getElementById('group-camera-switch-btn').onclick = async () => {
+  if (!groupLocalStream) return;
+  const videoTracks = groupLocalStream.getVideoTracks();
+  if (videoTracks.length === 0) return;
+  groupFacingMode = groupFacingMode === 'user' ? 'environment' : 'user';
+  try {
+    const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: groupFacingMode } });
+    const newTrack = newStream.getVideoTracks()[0];
+    for (const pc of groupPeers.values()) {
+      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if (sender) await sender.replaceTrack(newTrack);
+    }
+    const oldTrack = videoTracks[0];
+    groupLocalStream.removeTrack(oldTrack);
+    oldTrack.stop();
+    groupLocalStream.addTrack(newTrack);
+    document.getElementById('group-local-video').srcObject = groupLocalStream;
+  } catch (err) {
+    groupFacingMode = groupFacingMode === 'user' ? 'environment' : 'user'; // revert
+    alert('Не удалось переключить камеру (возможно, на этом устройстве только одна камера)');
+  }
+};
+
+// ---------- Group call: participant selection UI ----------
+let groupSelectedContacts = new Set();
+
+document.getElementById('group-call-btn').onclick = async () => {
+  groupSelectedContacts = new Set();
+  document.getElementById('group-select-error').textContent = '';
+  document.getElementById('group-select-input').value = '';
+  if (currentContact) groupSelectedContacts.add(currentContact);
+  await renderGroupSelectList();
+  document.getElementById('group-select-modal').classList.add('active');
+};
+
+async function renderGroupSelectList() {
+  const listEl = document.getElementById('group-select-list');
+  const res = await fetch('/api/contacts');
+  const contacts = await res.json();
+  const names = contacts.map(c => c.contact);
+  // Make sure the contact whose chat we came from is always offered,
+  // even if no messages have been exchanged with them yet.
+  if (currentContact && !names.includes(currentContact)) {
+    names.unshift(currentContact);
+  }
+
+  listEl.innerHTML = '';
+  names.forEach(name => {
+    const item = document.createElement('div');
+    const checked = groupSelectedContacts.has(name);
+    item.className = 'group-select-item' + (checked ? ' checked' : '');
+    item.innerHTML = `<input type="checkbox" ${checked ? 'checked' : ''}> <span>${escapeHtml(name)}</span>`;
+    item.onclick = (e) => {
+      const cb = item.querySelector('input');
+      if (e.target !== cb) cb.checked = !cb.checked;
+      if (cb.checked) {
+        groupSelectedContacts.add(name);
+        item.classList.add('checked');
+      } else {
+        groupSelectedContacts.delete(name);
+        item.classList.remove('checked');
+      }
+    };
+    listEl.appendChild(item);
+  });
+}
+
+document.getElementById('group-select-add-btn').onclick = async () => {
+  const input = document.getElementById('group-select-input');
+  const name = input.value.trim();
+  const errorEl = document.getElementById('group-select-error');
+  errorEl.textContent = '';
+  if (!name || name === me) return;
+  const res = await fetch(`/api/user-exists/${encodeURIComponent(name)}`);
+  const { exists } = await res.json();
+  if (!exists) {
+    errorEl.textContent = 'Такого контакта нет';
+    return;
+  }
+  groupSelectedContacts.add(name);
+  input.value = '';
+  await renderGroupSelectList();
+};
+
+document.getElementById('group-select-cancel-btn').onclick = () => {
+  document.getElementById('group-select-modal').classList.remove('active');
+};
+
+document.getElementById('group-select-audio-btn').onclick = () => {
+  if (groupSelectedContacts.size === 0) {
+    document.getElementById('group-select-error').textContent = 'Выберите хотя бы одного участника';
+    return;
+  }
+  startGroupCall(Array.from(groupSelectedContacts), false);
+};
+
+document.getElementById('group-select-video-btn').onclick = () => {
+  if (groupSelectedContacts.size === 0) {
+    document.getElementById('group-select-error').textContent = 'Выберите хотя бы одного участника';
+    return;
+  }
+  startGroupCall(Array.from(groupSelectedContacts), true);
+};
+
+document.getElementById('group-add-btn').onclick = async () => {
+  const contact = prompt('Никнейм того, кого хотите добавить в звонок:');
+  if (!contact) return;
+  const res = await fetch(`/api/user-exists/${encodeURIComponent(contact)}`);
+  const { exists } = await res.json();
+  if (!exists) {
+    alert('Такого контакта нет');
+    return;
+  }
+  socket.emit('invite-to-call', { callId: currentCallId, contact });
+};
 </script>
 
 </body>
