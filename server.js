@@ -128,6 +128,11 @@ app.get('/api/user-exists/:username', async (req, res) => {
   res.json({ exists: rows.length > 0 });
 });
 
+// Current list of online usernames (for the contacts list status dots)
+app.get('/api/online-users', (req, res) => {
+  res.json(Array.from(onlineUsers.keys()));
+});
+
 // List of people the logged-in user has chatted with, most recent first
 app.get('/api/contacts', async (req, res) => {
   if (!req.session.username) return res.status(401).json({ error: 'Не авторизован' });
@@ -185,6 +190,7 @@ io.on('connection', (socket) => {
   }
 
   onlineUsers.set(username, socket.id);
+  io.emit('presence', { username, online: true });
 
   socket.on('join-chat', (contact) => {
     const room = roomFor(username, contact);
@@ -358,6 +364,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     if (onlineUsers.get(username) === socket.id) {
       onlineUsers.delete(username);
+      io.emit('presence', { username, online: false });
     }
     if (socket.data.groupCallId) {
       leaveGroupCall(socket, username, socket.data.groupCallId);
