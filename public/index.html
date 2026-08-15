@@ -19,13 +19,35 @@
   }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #111;
+    background: #05050a;
     color: #eee;
     margin: 0;
     height: 100vh;
     height: 100dvh;
     display: flex;
     flex-direction: column;
+  }
+  #space-bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(ellipse at center, #0a0a18 0%, #030308 100%);
+    overflow: hidden;
+  }
+  #space-bg .star {
+    position: absolute;
+    background: #fff;
+    border-radius: 50%;
+    animation: twinkle 3s ease-in-out infinite;
+  }
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 1; }
+  }
+  #space-bg svg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+  #space-bg .orbit-ring { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 1; }
+  #space-bg .planet-label {
+    fill: rgba(255,255,255,0.55); font-size: 8px; font-family: monospace;
   }
   .screen { display: none; flex: 1; flex-direction: column; min-height: 0; }
   .screen.active { display: flex; }
@@ -179,6 +201,11 @@
     position: absolute; top: 16px; left: 16px;
     background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 6px; font-size: 14px;
   }
+  #call-duration, #group-call-duration {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.5); padding: 6px 12px; border-radius: 6px;
+    font-size: 14px; font-family: monospace; z-index: 6;
+  }
   #debug-status {
     position: absolute; top: 16px; right: 16px;
     background: rgba(0,0,0,0.5); padding: 6px 10px; border-radius: 6px;
@@ -262,7 +289,7 @@
   }
   .group-tile {
     position: relative;
-    background: #222;
+    background: transparent;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
@@ -328,6 +355,72 @@
 </style>
 </head>
 <body>
+
+<div id="space-bg"></div>
+<script>
+// Space background: Sun + 8 planets at their actual current angular
+// position, computed from simplified circular-orbit elements (mean
+// longitude at J2000 + orbital period). This ignores orbital eccentricity,
+// so it's accurate to within a few degrees — good enough for decoration,
+// not for navigation. Distances use a compressed log scale for visibility:
+// Neptune is genuinely ~78x farther from the Sun than Mercury is, which
+// can't be shown at true linear scale on a screen.
+(function renderSpaceBg() {
+  const PLANETS = [
+    { name: 'Меркурий', color: '#b1adad', period: 87.969,   L0: 252.25, a: 0.387 },
+    { name: 'Венера',   color: '#e6c229', period: 224.701,  L0: 181.98, a: 0.723 },
+    { name: 'Земля',    color: '#3b82f6', period: 365.256,  L0: 100.47, a: 1.000 },
+    { name: 'Марс',     color: '#c1440e', period: 686.980,  L0: 355.45, a: 1.524 },
+    { name: 'Юпитер',   color: '#d9a066', period: 4332.589, L0: 34.40,  a: 5.203 },
+    { name: 'Сатурн',   color: '#e3c16f', period: 10759.22, L0: 49.94,  a: 9.537 },
+    { name: 'Уран',     color: '#7fd4e0', period: 30688.5,  L0: 313.23, a: 19.191 },
+    { name: 'Нептун',   color: '#3f54ba', period: 60182,    L0: 304.88, a: 30.069 }
+  ];
+
+  function daysSinceJ2000() {
+    const j2000 = Date.UTC(2000, 0, 1, 12, 0, 0);
+    return (Date.now() - j2000) / 86400000;
+  }
+
+  function planetAngle(p, days) {
+    const angle = (p.L0 + 360 * (days / p.period)) % 360;
+    return angle < 0 ? angle + 360 : angle;
+  }
+
+  const container = document.getElementById('space-bg');
+
+  for (let i = 0; i < 90; i++) {
+    const star = document.createElement('div');
+    star.className = 'star';
+    const size = Math.random() * 2 + 0.5;
+    star.style.width = size + 'px';
+    star.style.height = size + 'px';
+    star.style.left = Math.random() * 100 + '%';
+    star.style.top = Math.random() * 100 + '%';
+    star.style.animationDelay = (Math.random() * 3) + 's';
+    container.appendChild(star);
+  }
+
+  const days = daysSinceJ2000();
+  const size = 320;
+  const cx = size / 2, cy = size / 2;
+  let svg = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">`;
+  svg += `<circle cx="${cx}" cy="${cy}" r="7" fill="#ffd76a" opacity="0.9"/>`;
+
+  PLANETS.forEach(p => {
+    const r = 20 + 34 * Math.log10(p.a * 10 + 1);
+    svg += `<circle class="orbit-ring" cx="${cx}" cy="${cy}" r="${r}"/>`;
+    const angleRad = (planetAngle(p, days) - 90) * Math.PI / 180;
+    const px = cx + r * Math.cos(angleRad);
+    const py = cy + r * Math.sin(angleRad);
+    const dotSize = (p.name === 'Юпитер' || p.name === 'Сатурн') ? 3.5 : 2.2;
+    svg += `<circle cx="${px.toFixed(2)}" cy="${py.toFixed(2)}" r="${dotSize}" fill="${p.color}"><title>${p.name}</title></circle>`;
+  });
+
+  svg += `</svg>`;
+  container.insertAdjacentHTML('beforeend', svg);
+})();
+</script>
 
 <!-- AUTH SCREEN -->
 <div id="auth-screen" class="screen active centered">
@@ -462,6 +555,7 @@
 <div id="call-screen" class="screen">
   <div id="call-screen-inner">
     <div id="call-status">Вызов...</div>
+    <div id="call-duration" style="display:none;"></div>
     <div id="debug-status"></div>
     <video id="remote-video" autoplay playsinline></video>
     <video id="local-video" autoplay playsinline muted></video>
@@ -478,6 +572,7 @@
 <div id="group-call-screen" class="screen">
   <div id="group-call-inner">
     <div id="group-call-status">Соединяем...</div>
+    <div id="group-call-duration" style="display:none;"></div>
     <div id="group-tiles"></div>
     <div id="group-reactions-layer"></div>
     <video id="group-local-video" autoplay playsinline muted></video>
@@ -531,6 +626,30 @@ let pendingCandidates = [];
 let pendingSignals = [];
 let callIAmCaller = false;
 let callWasConnected = false;
+let callStartTime = null;
+let callDegreeInterval = null;
+let groupCallStartTime = null;
+let groupCallDegreeInterval = null;
+// Earth's real sidereal rotation rate (360° per sidereal day, 86164.0905s)
+const EARTH_DEG_PER_SEC = 360 / 86164.0905;
+
+function startDegreeCounter(elId, getStartTime) {
+  const el = document.getElementById(elId);
+  el.style.display = 'block';
+  const update = () => {
+    const start = getStartTime();
+    if (!start) return;
+    const deg = ((Date.now() - start) / 1000) * EARTH_DEG_PER_SEC;
+    el.textContent = `🌍 ${deg.toFixed(3)}°`;
+  };
+  update();
+  return setInterval(update, 100);
+}
+
+function totalDegreesRotated(startTime) {
+  if (!startTime) return 0;
+  return ((Date.now() - startTime) / 1000) * EARTH_DEG_PER_SEC;
+}
 
 // ---------- Group call state ----------
 let currentCallId = null;
@@ -1129,7 +1248,12 @@ async function startCall(isCaller, withVideo) {
       document.getElementById('call-status').style.display = 'none';
       clearTimeout(connectTimeoutId);
       stopRingtone();
-      callWasConnected = true;
+      if (!callWasConnected) {
+        callWasConnected = true;
+        callStartTime = Date.now();
+        clearInterval(callDegreeInterval);
+        callDegreeInterval = startDegreeCounter('call-duration', () => callStartTime);
+      }
     } else if (['failed', 'disconnected', 'closed'].includes(peerConnection.connectionState)) {
       document.getElementById('call-status').style.display = 'block';
       document.getElementById('call-status').textContent = 'Связь прервалась...';
@@ -1286,6 +1410,11 @@ function showIncomingCallScreen(from, video) {
 
 function endCall(notifyServer) {
   const wasInCall = inCall;
+  const degreesRotated = callWasConnected ? totalDegreesRotated(callStartTime) : 0;
+  clearInterval(callDegreeInterval);
+  callDegreeInterval = null;
+  callStartTime = null;
+  document.getElementById('call-duration').style.display = 'none';
   clearTimeout(connectTimeoutId);
   stopRingtone();
   inCall = false;
@@ -1308,7 +1437,10 @@ function endCall(notifyServer) {
   // intended person sees it in their view of the shared chat).
   if (wasInCall && callIAmCaller && currentContact) {
     if (callWasConnected) {
-      socket.emit('system-message', { contact: currentContact, body: 'Надеюсь, разговор был полезен для тебя 😊' });
+      socket.emit('system-message', {
+        contact: currentContact,
+        body: `Надеюсь, разговор был полезен для тебя 😊 (Земля повернулась на ${degreesRotated.toFixed(3)}° за время разговора)`
+      });
     } else {
       socket.emit('system-message', {
         contact: currentContact,
@@ -1346,6 +1478,10 @@ async function setupGroupLocalMedia(withVideo) {
   document.getElementById('group-video-toggle-btn').textContent = withVideo ? '💅' : '💅';
   document.getElementById('group-video-toggle-btn').classList.remove('active-off');
   document.getElementById('group-camera-switch-btn').style.display = withVideo ? 'flex' : 'none';
+
+  groupCallStartTime = Date.now();
+  clearInterval(groupCallDegreeInterval);
+  groupCallDegreeInterval = startDegreeCounter('group-call-duration', () => groupCallStartTime);
 }
 
 function getOrCreateGroupPeer(username) {
@@ -1496,6 +1632,12 @@ function showGroupInviteScreen(callId, from, video) {
 }
 
 function endGroupCall(notifyServer) {
+  const degreesRotated = totalDegreesRotated(groupCallStartTime);
+  clearInterval(groupCallDegreeInterval);
+  groupCallDegreeInterval = null;
+  groupCallStartTime = null;
+  document.getElementById('group-call-duration').style.display = 'none';
+
   if (notifyServer && currentCallId) {
     socket.emit('leave-group-call', { callId: currentCallId });
   }
@@ -1509,6 +1651,10 @@ function endGroupCall(notifyServer) {
   currentCallId = null;
   show('contact-screen');
   loadContacts();
+
+  if (degreesRotated > 0) {
+    alert(`Групповой разговор длился ${degreesRotated.toFixed(3)}° поворота Земли 😊`);
+  }
 }
 
 document.getElementById('group-hangup').onclick = () => endGroupCall(true);
