@@ -61,7 +61,7 @@ async function sendPushToUser(username, payload) {
 app.post('/api/register', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password || username.length < 2 || password.length < 4) {
-    return res.status(400).json({ error: 'Никнейм от 2 символов, пароль от 4 символов' });
+    return res.status(400).json({ error: 'INVALID_INPUT' });
   }
   try {
     const hash = await bcrypt.hash(password, 10);
@@ -73,10 +73,10 @@ app.post('/api/register', async (req, res) => {
     res.json({ username });
   } catch (err) {
     if (err.code === '23505') {
-      return res.status(400).json({ error: 'Такой никнейм уже занят' });
+      return res.status(400).json({ error: 'USERNAME_TAKEN' });
     }
     console.error(err);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    res.status(500).json({ error: 'SERVER_ERROR' });
   }
 });
 
@@ -84,11 +84,11 @@ app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   const { rows } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
   if (rows.length === 0) {
-    return res.status(400).json({ error: 'Пользователь не найден' });
+    return res.status(400).json({ error: 'USER_NOT_FOUND' });
   }
   const valid = await bcrypt.compare(password, rows[0].password_hash);
   if (!valid) {
-    return res.status(400).json({ error: 'Неверный пароль' });
+    return res.status(400).json({ error: 'WRONG_PASSWORD' });
   }
   req.session.username = username;
   res.json({ username });
@@ -108,7 +108,7 @@ app.get('/api/vapid-public-key', (req, res) => {
 
 // Save a push subscription for the logged-in user
 app.post('/api/subscribe', async (req, res) => {
-  if (!req.session.username) return res.status(401).json({ error: 'Не авторизован' });
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
   const subscription = req.body;
   await pool.query(
     `INSERT INTO push_subscriptions (username, endpoint, subscription)
@@ -128,14 +128,37 @@ app.get('/api/user-exists/:username', async (req, res) => {
   res.json({ exists: rows.length > 0 });
 });
 
-// Current list of online usernames (for the contacts list status dots)
-app.get('/api/online-users', (req, res) => {
-  res.json(Array.from(onlineUsers.keys()));
+// Current list of online users with their chosen status planet
+app.get('/api/online-users', async (req, res) => {
+  const usernames = Array.from(onlineUsers.keys());
+  if (usernames.length === 0) return res.json([]);
+  const { rows } = await pool.query(
+    'SELECT username, status_planet FROM users WHERE username = ANY($1)',
+    [usernames]
+  );
+  res.json(rows.map(r => ({ username: r.username, planet: r.status_planet || 'earth' })));
+});
+
+// Get/set the planet that represents you when online
+app.get('/api/status-planet', async (req, res) => {
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
+  const { rows } = await pool.query('SELECT status_planet FROM users WHERE username = $1', [req.session.username]);
+  res.json({ planet: rows[0]?.status_planet || 'earth' });
+});
+
+app.post('/api/status-planet', async (req, res) => {
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
+  const { planet } = req.body;
+  const VALID = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
+  if (!VALID.includes(planet)) return res.status(400).json({ error: 'INVALID_PLANET' });
+  await pool.query('UPDATE users SET status_planet = $1 WHERE username = $2', [planet, req.session.username]);
+  io.emit('presence', { username: req.session.username, online: true, planet });
+  res.json({ ok: true });
 });
 
 // List of people the logged-in user has chatted with, most recent first
 app.get('/api/contacts', async (req, res) => {
-  if (!req.session.username) return res.status(401).json({ error: 'Не авторизован' });
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
   const username = req.session.username;
   const { rows } = await pool.query(
     `SELECT room, MAX(created_at) AS last_at,
@@ -159,7 +182,7 @@ app.get('/api/contacts', async (req, res) => {
 
 // Chat history between the logged-in user and a contact
 app.get('/api/messages/:contact', async (req, res) => {
-  if (!req.session.username) return res.status(401).json({ error: 'Не авторизован' });
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
   const room = roomFor(req.session.username, req.params.contact);
   const { rows } = await pool.query(
     'SELECT sender, body, created_at FROM messages WHERE room = $1 ORDER BY created_at ASC LIMIT 200',
@@ -170,7 +193,7 @@ app.get('/api/messages/:contact', async (req, res) => {
 
 // Delete an entire chat thread with a contact
 app.delete('/api/messages/:contact', async (req, res) => {
-  if (!req.session.username) return res.status(401).json({ error: 'Не авторизован' });
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
   const room = roomFor(req.session.username, req.params.contact);
   await pool.query('DELETE FROM messages WHERE room = $1', [room]);
   res.json({ ok: true });
@@ -190,7 +213,9 @@ io.on('connection', (socket) => {
   }
 
   onlineUsers.set(username, socket.id);
-  io.emit('presence', { username, online: true });
+  pool.query('SELECT status_planet FROM users WHERE username = $1', [username]).then(({ rows }) => {
+    io.emit('presence', { username, online: true, planet: rows[0]?.status_planet || 'earth' });
+  });
 
   socket.on('join-chat', (contact) => {
     const room = roomFor(username, contact);
@@ -307,11 +332,11 @@ io.on('connection', (socket) => {
   socket.on('join-group-call', ({ callId }, callback) => {
     const call = groupCalls.get(callId);
     if (!call) {
-      if (typeof callback === 'function') callback({ error: 'Звонок уже завершён' });
+      if (typeof callback === 'function') callback({ error: 'CALL_ENDED' });
       return;
     }
     if (call.members.size >= MAX_GROUP_SIZE && !call.members.has(username)) {
-      if (typeof callback === 'function') callback({ error: 'В звонке уже максимум участников (8)' });
+      if (typeof callback === 'function') callback({ error: 'CALL_FULL' });
       return;
     }
 
