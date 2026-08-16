@@ -527,6 +527,7 @@
     <div style="display:flex; gap:6px;">
       <button id="group-call-btn">👥</button>
       <button id="call-btn">📞</button>
+      <button id="group-chat-call-btn" style="display:none;">📞</button>
     </div>
   </div>
   <div id="messages"></div>
@@ -691,6 +692,7 @@ function clientRoomFor(a, b) {
 let me = null;
 let currentContact = null;
 let currentGroupChatId = null;
+let currentGroupChatMembers = [];
 let socket = null;
 let localStream = null;
 let peerConnection = null;
@@ -989,6 +991,7 @@ async function openChat(contact) {
   document.getElementById('chat-with-status').innerHTML = planetDotHtml(contact);
   document.getElementById('group-call-btn').style.display = 'flex';
   document.getElementById('call-btn').style.display = 'flex';
+  document.getElementById('group-chat-call-btn').style.display = 'none';
   document.getElementById('messages').innerHTML = '';
 
   socket.emit('join-chat', contact);
@@ -1004,12 +1007,12 @@ async function openChat(contact) {
 async function openGroupChat(groupChatId, memberNames) {
   currentContact = null;
   currentGroupChatId = groupChatId;
+  currentGroupChatMembers = memberNames;
   document.getElementById('chat-with').textContent = '👥 ' + memberNames.join(', ');
   document.getElementById('chat-with-status').innerHTML = '';
-  // Calls are started from a 1:1 chat or the group-call picker, not from
-  // inside an existing group chat thread — hide those buttons here.
   document.getElementById('group-call-btn').style.display = 'none';
   document.getElementById('call-btn').style.display = 'none';
+  document.getElementById('group-chat-call-btn').style.display = 'flex';
   document.getElementById('messages').innerHTML = '';
 
   socket.emit('join-group-chat', groupChatId);
@@ -1135,6 +1138,7 @@ function connectSocket() {
   });
 
   socket.on('call-ended', () => {
+    stopIncomingAlert();
     document.getElementById('incoming-call-modal').classList.remove('active');
     pendingSignals = [];
     if (inCall) endCall(false);
@@ -1361,8 +1365,17 @@ let isMuted = false;
 let isVideoOff = false;
 let pendingIsVideo = true;
 
+let callTypeTarget = '1to1'; // '1to1' or 'group-chat'
+
 document.getElementById('call-btn').onclick = () => {
   if (!currentContact) return;
+  callTypeTarget = '1to1';
+  document.getElementById('call-type-modal').classList.add('active');
+};
+
+document.getElementById('group-chat-call-btn').onclick = () => {
+  if (currentGroupChatMembers.length === 0) return;
+  callTypeTarget = 'group-chat';
   document.getElementById('call-type-modal').classList.add('active');
 };
 
@@ -1372,6 +1385,10 @@ document.getElementById('call-cancel-btn').onclick = () => {
 
 document.getElementById('call-audio-btn').onclick = () => {
   document.getElementById('call-type-modal').classList.remove('active');
+  if (callTypeTarget === 'group-chat') {
+    startGroupCall(currentGroupChatMembers, false);
+    return;
+  }
   pendingIsVideo = false;
   socket.emit('call-user', { contact: currentContact, video: false });
   startCall(true, false);
@@ -1379,6 +1396,10 @@ document.getElementById('call-audio-btn').onclick = () => {
 
 document.getElementById('call-video-btn').onclick = () => {
   document.getElementById('call-type-modal').classList.remove('active');
+  if (callTypeTarget === 'group-chat') {
+    startGroupCall(currentGroupChatMembers, true);
+    return;
+  }
   pendingIsVideo = true;
   socket.emit('call-user', { contact: currentContact, video: true });
   startCall(true, true);
@@ -1463,6 +1484,100 @@ function stopRingtone() {
   if (ringtoneCtx) {
     ringtoneCtx.close();
     ringtoneCtx = null;
+  }
+}
+
+// ---------- Space "ping" ringtone — used while a GROUP call is connecting ----------
+let spaceRingtoneCtx = null;
+let spaceRingtoneTimers = [];
+let spaceRingtonePlaying = false;
+
+function spacePing(ctx, time) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(480, time);
+  osc.frequency.exponentialRampToValueAtTime(1100, time + 0.28);
+  gain.gain.setValueAtTime(0, time);
+  gain.gain.linearRampToValueAtTime(0.12, time + 0.03);
+  gain.gain.linearRampToValueAtTime(0, time + 0.32);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(time);
+  osc.stop(time + 0.34);
+}
+
+function scheduleSpacePing() {
+  if (!spaceRingtonePlaying || !spaceRingtoneCtx) return;
+  spacePing(spaceRingtoneCtx, spaceRingtoneCtx.currentTime);
+  if (navigator.vibrate) navigator.vibrate([70]);
+  spaceRingtoneTimers.push(setTimeout(scheduleSpacePing, 1100));
+}
+
+function startSpaceRingtone() {
+  if (spaceRingtonePlaying) return;
+  try {
+    spaceRingtoneCtx = new (window.AudioContext || window.webkitAudioContext)();
+    spaceRingtonePlaying = true;
+    scheduleSpacePing();
+  } catch (e) {}
+}
+
+function stopSpaceRingtone() {
+  spaceRingtonePlaying = false;
+  spaceRingtoneTimers.forEach(t => clearTimeout(t));
+  spaceRingtoneTimers = [];
+  if (spaceRingtoneCtx) {
+    spaceRingtoneCtx.close();
+    spaceRingtoneCtx = null;
+  }
+}
+
+// ---------- Incoming-call alert — played to the person being called,
+// distinct from the ringtone the caller hears while waiting ----------
+let incomingAlertCtx = null;
+let incomingAlertTimers = [];
+let incomingAlertPlaying = false;
+
+function incomingBeepTriplet(ctx, time) {
+  [0, 0.16, 0.32].forEach(offset => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(1300, time + offset);
+    gain.gain.setValueAtTime(0, time + offset);
+    gain.gain.linearRampToValueAtTime(0.1, time + offset + 0.02);
+    gain.gain.linearRampToValueAtTime(0, time + offset + 0.12);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(time + offset);
+    osc.stop(time + offset + 0.13);
+  });
+}
+
+function scheduleIncomingAlert() {
+  if (!incomingAlertPlaying || !incomingAlertCtx) return;
+  incomingBeepTriplet(incomingAlertCtx, incomingAlertCtx.currentTime);
+  if (navigator.vibrate) navigator.vibrate([150, 80, 150, 80, 150]);
+  incomingAlertTimers.push(setTimeout(scheduleIncomingAlert, 1700));
+}
+
+function startIncomingAlert() {
+  if (incomingAlertPlaying) return;
+  try {
+    incomingAlertCtx = new (window.AudioContext || window.webkitAudioContext)();
+    incomingAlertPlaying = true;
+    scheduleIncomingAlert();
+  } catch (e) {}
+}
+
+function stopIncomingAlert() {
+  incomingAlertPlaying = false;
+  incomingAlertTimers.forEach(t => clearTimeout(t));
+  incomingAlertTimers = [];
+  if (incomingAlertCtx) {
+    incomingAlertCtx.close();
+    incomingAlertCtx = null;
   }
 }
 
@@ -1717,8 +1832,10 @@ function showIncomingCallScreen(from, video) {
   document.getElementById('incoming-call-text').textContent =
     `${video ? '📹' : '📞'} ${from}`;
   document.getElementById('incoming-call-modal').classList.add('active');
+  startIncomingAlert();
 
   document.getElementById('accept-call-btn').onclick = () => {
+    stopIncomingAlert();
     document.getElementById('incoming-call-modal').classList.remove('active');
     currentContact = from;
     document.getElementById('chat-with').textContent = from;
@@ -1726,6 +1843,7 @@ function showIncomingCallScreen(from, video) {
   };
 
   document.getElementById('decline-call-btn').onclick = () => {
+    stopIncomingAlert();
     document.getElementById('incoming-call-modal').classList.remove('active');
     pendingSignals = [];
     socket.emit('call-ended', { contact: from });
@@ -1841,6 +1959,10 @@ function getOrCreateGroupPeer(username) {
 
   pc.onconnectionstatechange = () => {
     console.log('[group-pc]', username, pc.connectionState);
+    if (pc.connectionState === 'connected') {
+      stopSpaceRingtone();
+      document.getElementById('group-call-status').style.display = 'none';
+    }
   };
 
   groupPeers.set(username, pc);
@@ -2003,6 +2125,7 @@ async function startGroupCall(contacts, withVideo) {
   document.getElementById('group-select-modal').classList.remove('active');
   await setupGroupLocalMedia(withVideo);
   show('group-call-screen');
+  startSpaceRingtone();
   document.getElementById('group-call-status').style.display = 'block';
   document.getElementById('group-call-status').textContent = '🛰️';
   socket.emit('start-group-call', { contacts, video: withVideo }, (response) => {
@@ -2014,11 +2137,14 @@ function showGroupInviteScreen(callId, from, video) {
   document.getElementById('group-invite-text').textContent =
     `👥${video ? '📹' : '📞'} ${from}`;
   document.getElementById('group-invite-modal').classList.add('active');
+  startIncomingAlert();
 
   document.getElementById('group-accept-btn').onclick = async () => {
+    stopIncomingAlert();
     document.getElementById('group-invite-modal').classList.remove('active');
     await setupGroupLocalMedia(video);
     show('group-call-screen');
+    startSpaceRingtone();
     document.getElementById('group-call-status').style.display = 'block';
     document.getElementById('group-call-status').textContent = '📡';
 
@@ -2042,11 +2168,14 @@ function showGroupInviteScreen(callId, from, video) {
   };
 
   document.getElementById('group-decline-btn').onclick = () => {
+    stopIncomingAlert();
     document.getElementById('group-invite-modal').classList.remove('active');
   };
 }
 
 function endGroupCall(notifyServer) {
+  stopSpaceRingtone();
+  stopIncomingAlert();
   const degreesRotated = totalDegreesRotated(groupCallStartTime);
   clearInterval(groupCallDegreeInterval);
   groupCallDegreeInterval = null;
