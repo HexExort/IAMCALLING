@@ -162,6 +162,12 @@
     margin-top: 3px;
     text-align: right;
   }
+  .msg-sender-name {
+    font-size: 11px;
+    color: #93c5fd;
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
   .msg-system {
     align-self: center;
     max-width: 85%;
@@ -324,6 +330,18 @@
     background: transparent;
     display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
+    transition: transform 150ms ease-out;
+    transform-origin: center;
+  }
+  .group-tile.speaking {
+    transform: scale(1.15);
+    z-index: 9;
+  }
+  #group-local-video.speaking {
+    transform: scale(1.15);
+  }
+  #group-local-video.speaking.mirrored {
+    transform: scale(1.15) scaleX(-1);
   }
   .group-tile video {
     width: 100%; height: 100%; object-fit: cover;
@@ -484,7 +502,11 @@
     </div>
     <button type="button" id="logout-btn" style="width:auto; background:none; font-size:22px; padding:4px;">🖐️</button>
   </div>
-  <div id="contacts-list" style="flex:1; overflow-y:auto; padding:8px 0;"></div>
+  <div id="contacts-list" style="flex:1; overflow-y:auto; padding:8px 0;">
+    <div id="dm-contacts-list"></div>
+    <div id="group-chats-divider" style="display:none; padding:10px 16px 4px; font-size:14px; color:#666;">👥💬</div>
+    <div id="group-chats-list"></div>
+  </div>
   <div id="contact-error" style="text-align:center; color:#f87171; font-size:13px; padding:0 12px; min-height:16px;"></div>
   <form id="contact-form" style="padding:12px; border-top:1px solid #333; flex-direction:row; gap:8px; margin:0; max-width:none;">
     <input id="contact-input" type="text" placeholder="👤+" style="flex:1;" required>
@@ -525,8 +547,8 @@
     </div>
     <div id="group-select-error" style="color:#f87171; font-size:13px; min-height:16px; text-align:center;"></div>
     <div style="display:flex; gap:12px;">
-      <button id="group-select-audio-btn" style="background:#dc2626; flex:1;">🏃</button>
-      <button id="group-select-video-btn" style="background:#16a34a; flex:1;">🧘</button>
+      <button id="group-select-audio-btn" style="background:#dc2626; flex:1;">😸</button>
+      <button id="group-select-video-btn" style="background:#16a34a; flex:1;">💅</button>
     </div>
     <button id="group-select-cancel-btn" style="background:none; color:#999;">✖</button>
   </div>
@@ -596,8 +618,8 @@
 <!-- CALL TYPE MODAL -->
 <div id="call-type-modal">
   <div id="call-type-box">
-    <button id="call-audio-btn" class="call-type-btn" style="background:#dc2626;">🏃</button>
-    <button id="call-video-btn" class="call-type-btn" style="background:#16a34a;">🧘</button>
+    <button id="call-audio-btn" class="call-type-btn" style="background:#dc2626;">😸</button>
+    <button id="call-video-btn" class="call-type-btn" style="background:#16a34a;">💅</button>
     <button id="call-cancel-btn" style="background:none; color:#999;">✖</button>
   </div>
 </div>
@@ -668,6 +690,7 @@ function clientRoomFor(a, b) {
 // ---------- State ----------
 let me = null;
 let currentContact = null;
+let currentGroupChatId = null;
 let socket = null;
 let localStream = null;
 let peerConnection = null;
@@ -712,6 +735,8 @@ let groupIsMuted = false;
 let groupIsVideoOff = false;
 let groupHasVideo = false;
 let groupFacingMode = 'user';
+let groupSpeakingDetectors = new Map(); // username -> {stop}
+let localSpeakingDetector = null;
 let onlineUsernames = new Map(); // username -> planet name
 let myStatusPlanet = 'earth';
 
@@ -864,47 +889,73 @@ document.getElementById('status-planet-close').onclick = () => {
 };
 
 async function loadContacts() {
-  const listEl = document.getElementById('contacts-list');
+  const listEl = document.getElementById('dm-contacts-list');
   listEl.innerHTML = '<div class="empty-state">⏳</div>';
   const res = await fetch('/api/contacts');
   const contacts = await res.json();
   if (contacts.length === 0) {
     listEl.innerHTML = '<div class="empty-state">💬∅</div>';
+  } else {
+    listEl.innerHTML = '';
+    contacts.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'contact-item';
+      const prefix = c.lastSender === me ? '➤ ' : '';
+      div.innerHTML = `<div class="contact-name-row">${planetDotHtml(c.contact)}<div class="contact-name">${escapeHtml(c.contact)}</div></div><div class="contact-preview">${escapeHtml(prefix + previewText(c))}</div>`;
+
+      let longPressTimer = null;
+      let longPressFired = false;
+
+      div.onclick = () => {
+        if (longPressFired) { longPressFired = false; return; }
+        openChat(c.contact);
+      };
+
+      // Desktop: right-click
+      div.oncontextmenu = (e) => {
+        e.preventDefault();
+        confirmDeleteChat(c.contact);
+      };
+
+      // Mobile: long-press
+      div.addEventListener('touchstart', () => {
+        longPressFired = false;
+        longPressTimer = setTimeout(() => {
+          longPressFired = true;
+          if (navigator.vibrate) navigator.vibrate(30);
+          confirmDeleteChat(c.contact);
+        }, 550);
+      });
+      div.addEventListener('touchend', () => clearTimeout(longPressTimer));
+      div.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+
+      listEl.appendChild(div);
+    });
+  }
+  await loadGroupChats();
+}
+
+async function loadGroupChats() {
+  const listEl = document.getElementById('group-chats-list');
+  const dividerEl = document.getElementById('group-chats-divider');
+  if (!me) return; // not logged in yet
+  const res = await fetch('/api/group-chats');
+  const chats = await res.json();
+  if (chats.length === 0) {
+    dividerEl.style.display = 'none';
+    listEl.innerHTML = '';
     return;
   }
+  dividerEl.style.display = 'block';
   listEl.innerHTML = '';
-  contacts.forEach(c => {
+  chats.forEach(gc => {
     const div = document.createElement('div');
     div.className = 'contact-item';
-    const prefix = c.lastSender === me ? '➤ ' : '';
-    div.innerHTML = `<div class="contact-name-row">${planetDotHtml(c.contact)}<div class="contact-name">${escapeHtml(c.contact)}</div></div><div class="contact-preview">${escapeHtml(prefix + previewText(c))}</div>`;
-
-    let longPressTimer = null;
-    let longPressFired = false;
-
-    div.onclick = () => {
-      if (longPressFired) { longPressFired = false; return; }
-      openChat(c.contact);
-    };
-
-    // Desktop: right-click
-    div.oncontextmenu = (e) => {
-      e.preventDefault();
-      confirmDeleteChat(c.contact);
-    };
-
-    // Mobile: long-press
-    div.addEventListener('touchstart', () => {
-      longPressFired = false;
-      longPressTimer = setTimeout(() => {
-        longPressFired = true;
-        if (navigator.vibrate) navigator.vibrate(30);
-        confirmDeleteChat(c.contact);
-      }, 550);
-    });
-    div.addEventListener('touchend', () => clearTimeout(longPressTimer));
-    div.addEventListener('touchmove', () => clearTimeout(longPressTimer));
-
+    const others = (gc.members || []).filter(u => u !== me);
+    const namesLine = others.join(', ');
+    const prefix = gc.last_sender === me ? '➤ ' : (gc.last_sender === '__system__' ? '' : '');
+    div.innerHTML = `<div class="contact-name-row"><span style="font-size:14px;">👥</span><div class="contact-name">${escapeHtml(namesLine)}</div></div><div class="contact-preview">${escapeHtml(prefix + (gc.last_body || ''))}</div>`;
+    div.onclick = () => openGroupChat(gc.id, others);
     listEl.appendChild(div);
   });
 }
@@ -933,8 +984,11 @@ function previewText(c) {
 
 async function openChat(contact) {
   currentContact = contact;
+  currentGroupChatId = null;
   document.getElementById('chat-with').textContent = contact;
   document.getElementById('chat-with-status').innerHTML = planetDotHtml(contact);
+  document.getElementById('group-call-btn').style.display = 'flex';
+  document.getElementById('call-btn').style.display = 'flex';
   document.getElementById('messages').innerHTML = '';
 
   socket.emit('join-chat', contact);
@@ -942,6 +996,27 @@ async function openChat(contact) {
   const res = await fetch(`/api/messages/${encodeURIComponent(contact)}`);
   const history = await res.json();
   history.forEach(m => addMessageToUI(m.sender, m.body, m.created_at));
+
+  playEarthZoomEffect();
+  show('chat-screen');
+}
+
+async function openGroupChat(groupChatId, memberNames) {
+  currentContact = null;
+  currentGroupChatId = groupChatId;
+  document.getElementById('chat-with').textContent = '👥 ' + memberNames.join(', ');
+  document.getElementById('chat-with-status').innerHTML = '';
+  // Calls are started from a 1:1 chat or the group-call picker, not from
+  // inside an existing group chat thread — hide those buttons here.
+  document.getElementById('group-call-btn').style.display = 'none';
+  document.getElementById('call-btn').style.display = 'none';
+  document.getElementById('messages').innerHTML = '';
+
+  socket.emit('join-group-chat', groupChatId);
+
+  const res = await fetch(`/api/group-messages/${encodeURIComponent(groupChatId)}`);
+  const history = await res.json();
+  history.forEach(m => addMessageToUI(m.sender, m.body, m.created_at, true));
 
   playEarthZoomEffect();
   show('chat-screen');
@@ -1029,6 +1104,20 @@ function connectSocket() {
     if (sender !== me && sender !== '__system__') {
       playNotificationBeep();
     }
+  });
+
+  socket.on('group-chat-message', ({ groupChatId, sender, body, created_at }) => {
+    if (currentGroupChatId && groupChatId === currentGroupChatId) {
+      addMessageToUI(sender, body, created_at, true);
+    }
+    if (sender !== me && sender !== '__system__') {
+      playNotificationBeep();
+    }
+  });
+
+  socket.on('group-chat-updated', () => {
+    if (!document.getElementById('contact-screen').classList.contains('active')) return;
+    loadGroupChats();
   });
 
   socket.on('incoming-call', ({ from, video }) => {
@@ -1185,11 +1274,12 @@ document.getElementById('contact-input').addEventListener('input', () => {
 
 document.getElementById('back-btn').onclick = async () => {
   currentContact = null;
+  currentGroupChatId = null;
   await loadContacts();
   show('contact-screen');
 };
 
-function addMessageToUI(sender, body, createdAt) {
+function addMessageToUI(sender, body, createdAt, showSenderName) {
   const div = document.createElement('div');
 
   if (sender === '__system__') {
@@ -1211,6 +1301,13 @@ function addMessageToUI(sender, body, createdAt) {
   }
 
   div.className = 'msg ' + (sender === me ? 'mine' : 'theirs');
+
+  if (showSenderName && sender !== me) {
+    const nameDiv = document.createElement('div');
+    nameDiv.className = 'msg-sender-name';
+    nameDiv.textContent = sender;
+    div.appendChild(nameDiv);
+  }
 
   const textDiv = document.createElement('div');
   textDiv.textContent = body;
@@ -1247,8 +1344,14 @@ document.getElementById('message-form').onsubmit = (e) => {
   e.preventDefault();
   const input = document.getElementById('message-input');
   const body = input.value.trim();
-  if (!body || !currentContact) return;
-  socket.emit('chat-message', { contact: currentContact, body });
+  if (!body) return;
+  if (currentGroupChatId) {
+    socket.emit('group-chat-message', { groupChatId: currentGroupChatId, body });
+  } else if (currentContact) {
+    socket.emit('chat-message', { contact: currentContact, body });
+  } else {
+    return;
+  }
   playSendBeep();
   input.value = '';
 };
@@ -1703,6 +1806,9 @@ async function setupGroupLocalMedia(withVideo) {
   groupCallStartTime = Date.now();
   clearInterval(groupCallDegreeInterval);
   groupCallDegreeInterval = startDegreeCounter('group-call-duration', () => groupCallStartTime);
+
+  if (localSpeakingDetector) localSpeakingDetector.stop();
+  localSpeakingDetector = createSpeakingDetector(groupLocalStream, () => document.getElementById('group-local-video'));
 }
 
 function getOrCreateGroupPeer(username) {
@@ -1720,6 +1826,11 @@ function getOrCreateGroupPeer(username) {
     const tile = addGroupTile(username);
     const videoEl = tile.querySelector('video');
     videoEl.srcObject = event.streams[0];
+
+    if (!groupSpeakingDetectors.has(username)) {
+      const detector = createSpeakingDetector(event.streams[0], () => document.getElementById('tile-' + username));
+      if (detector) groupSpeakingDetectors.set(username, detector);
+    }
   };
 
   pc.onicecandidate = (event) => {
@@ -1786,24 +1897,107 @@ function removeGroupParticipant(username) {
   groupPeers.delete(username);
   groupRemoteDescSet.delete(username);
   groupPendingCandidates.delete(username);
+  const detector = groupSpeakingDetectors.get(username);
+  if (detector) detector.stop();
+  groupSpeakingDetectors.delete(username);
   const tile = document.getElementById('tile-' + username);
   if (tile) tile.remove();
   relayoutGroupTiles();
 }
 
+// Detects when someone is talking (based on mic/received audio volume) and
+// toggles a "speaking" class on their tile so it grows ~15% and can overlap
+// neighbours slightly — a lightweight, local-only volume analysis, no
+// external service involved.
+function createSpeakingDetector(stream, getEl) {
+  if (!stream || stream.getAudioTracks().length === 0) return null;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.6;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let speaking = false;
+    let silenceFrames = 0;
+    const THRESHOLD = 0.06;
+
+    const intervalId = setInterval(() => {
+      analyser.getByteFrequencyData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i];
+      const avg = sum / data.length / 255;
+      const el = getEl();
+      if (!el) return;
+
+      if (avg > THRESHOLD) {
+        silenceFrames = 0;
+        if (!speaking) {
+          speaking = true;
+          el.classList.add('speaking');
+        }
+      } else {
+        silenceFrames++;
+        if (speaking && silenceFrames > 4) {
+          speaking = false;
+          el.classList.remove('speaking');
+        }
+      }
+    }, 150);
+
+    return {
+      stop: () => {
+        clearInterval(intervalId);
+        try { source.disconnect(); } catch (e) {}
+        try { ctx.close(); } catch (e) {}
+      }
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
 function relayoutGroupTiles() {
-  const count = document.querySelectorAll('.group-tile').length;
-  let size;
-  if (count <= 1) size = '62vmin';
-  else if (count === 2) size = '46vmin';
-  else if (count <= 4) size = '36vmin';
-  else if (count <= 6) size = '28vmin';
-  else size = '22vmin';
-  document.querySelectorAll('.group-tile').forEach(t => {
-    t.style.width = size;
-    t.style.height = size;
+  const tiles = document.querySelectorAll('.group-tile');
+  const count = tiles.length;
+  if (count === 0) return;
+
+  const container = document.getElementById('group-tiles');
+  const gap = 10;
+  // Leave a margin so tiles don't collide with the local preview / controls
+  const availableW = container.clientWidth - 20;
+  const availableH = container.clientHeight - 20;
+
+  // Try every possible column count and pick whichever gives the biggest
+  // tile — this is what actually "tiles" the real screen space instead of
+  // using fixed sizes that leave the screen mostly empty with few people.
+  let bestSize = 0;
+  for (let cols = 1; cols <= count; cols++) {
+    const rows = Math.ceil(count / cols);
+    const tileW = (availableW - gap * (cols - 1)) / cols;
+    const tileH = (availableH - gap * (rows - 1)) / rows;
+    const size = Math.min(tileW, tileH);
+    if (size > bestSize) bestSize = size;
+  }
+
+  // Cap so a single person doesn't become absurdly huge on a big monitor
+  bestSize = Math.min(bestSize, 420);
+  bestSize = Math.max(bestSize, 60);
+
+  tiles.forEach(t => {
+    t.style.width = bestSize + 'px';
+    t.style.height = bestSize + 'px';
+    t.dataset.baseSize = bestSize;
   });
 }
+
+// Recompute the layout if the window/screen size changes (e.g. rotating a phone)
+window.addEventListener('resize', () => {
+  if (document.getElementById('group-call-screen').classList.contains('active')) {
+    relayoutGroupTiles();
+  }
+});
 
 async function startGroupCall(contacts, withVideo) {
   document.getElementById('group-select-modal').classList.remove('active');
@@ -1866,12 +2060,17 @@ function endGroupCall(notifyServer) {
   groupPeers.clear();
   groupRemoteDescSet.clear();
   groupPendingCandidates.clear();
+  groupSpeakingDetectors.forEach(d => d.stop());
+  groupSpeakingDetectors.clear();
+  if (localSpeakingDetector) { localSpeakingDetector.stop(); localSpeakingDetector = null; }
   if (groupLocalStream) { groupLocalStream.getTracks().forEach(t => t.stop()); groupLocalStream = null; }
   document.getElementById('group-tiles').innerHTML = '';
   document.getElementById('group-local-video').srcObject = null;
+  document.getElementById('group-local-video').classList.remove('speaking');
   currentCallId = null;
   show('contact-screen');
   loadContacts();
+  loadGroupChats();
 
   if (degreesRotated > 0) {
     alert(`👥📞😊 🌍${degreesRotated.toFixed(3)}°`);
