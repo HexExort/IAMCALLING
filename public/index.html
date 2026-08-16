@@ -221,6 +221,7 @@
     border-radius: 0 !important;
   }
   .shape-emoji { clip-path: none; border-radius: 0 !important; background: transparent !important; }
+  .shape-none { clip-path: none !important; border-radius: 0 !important; }
 
   #shape-picker-modal, #status-planet-modal {
     position: fixed; inset: 0; background: rgba(0,0,0,0.7);
@@ -567,6 +568,7 @@
 <div id="shape-picker-modal">
   <div id="shape-picker-box">
     <div class="shape-options">
+      <button data-shape="none">↩️</button>
       <button data-shape="circle">⚪</button>
       <button data-shape="square">◻️</button>
       <button data-shape="star">⭐</button>
@@ -1906,7 +1908,7 @@ async function setupGroupLocalMedia(withVideo) {
   localVideoEl.srcObject = groupLocalStream;
   localVideoEl.style.display = withVideo ? 'block' : 'none';
   resetLocalVideoPosition(localVideoEl);
-  applyShapeToElement(localVideoEl, 'circle');
+  applyShapeToElement(localVideoEl, 'none');
   localVideoEl.classList.toggle('mirrored', groupFacingMode === 'user');
 
   document.getElementById('group-mute-btn').textContent = '😸';
@@ -2001,7 +2003,7 @@ function addGroupTile(username) {
   tile.className = 'group-tile';
   tile.id = 'tile-' + username;
   tile.innerHTML = `<video autoplay playsinline></video><div class="group-tile-name">${escapeHtml(username)}</div>`;
-  applyShapeToElement(tile.querySelector('video'), 'circle');
+  applyShapeToElement(tile.querySelector('video'), 'none');
   document.getElementById('group-tiles').appendChild(tile);
   relayoutGroupTiles();
   return tile;
