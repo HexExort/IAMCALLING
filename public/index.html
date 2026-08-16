@@ -1146,6 +1146,30 @@ function connectSocket() {
     if (inCall) endCall(false);
   });
 
+  // The person we called just came online (e.g. they opened the app from
+  // the push notification) — if we're still waiting, send them a fresh
+  // offer instead of leaving them with nothing to answer.
+  socket.on('callee-reconnected', async ({ contact }) => {
+    if (!(inCall && callIAmCaller && currentContact === contact && peerConnection)) return;
+    if (peerConnection.connectionState === 'connected') return;
+    try {
+      remoteDescSet = false;
+      pendingCandidates = [];
+      const offer = await peerConnection.createOffer({ iceRestart: true });
+      await peerConnection.setLocalDescription(offer);
+      socket.emit('signal', { contact, data: peerConnection.localDescription });
+      clearTimeout(connectTimeoutId);
+      connectTimeoutId = setTimeout(() => {
+        if (inCall && peerConnection && peerConnection.connectionState !== 'connected') {
+          endCall(true);
+          alert('📡✖');
+        }
+      }, 45000);
+    } catch (e) {
+      console.warn('Failed to resend offer after callee reconnected', e);
+    }
+  });
+
   // --- Group calls ---
   socket.on('group-call-invite', ({ callId, from, video }) => {
     showGroupInviteScreen(callId, from, !!video);
@@ -1729,13 +1753,15 @@ async function startCall(isCaller, withVideo) {
 
   // Safety net: if it never connects, don't leave the call stuck forever —
   // that's what made every retry after the first one silently do nothing.
+  // Long enough to cover "they got a push notification and need to open
+  // the app" (that whole flow can easily take 20-30s on its own).
   clearTimeout(connectTimeoutId);
   connectTimeoutId = setTimeout(() => {
     if (inCall && peerConnection && peerConnection.connectionState !== 'connected') {
       endCall(true);
       alert('📡✖');
     }
-  }, 20000);
+  }, 45000);
 }
 
 document.getElementById('mute-btn').onclick = () => {
@@ -2099,8 +2125,9 @@ function relayoutGroupTiles() {
     if (size > bestSize) bestSize = size;
   }
 
-  // Cap so a single person doesn't become absurdly huge on a big monitor
-  bestSize = Math.min(bestSize, 420);
+  // Only a floor, no hard ceiling — the whole point is to actually use the
+  // available screen space, however big it is (a huge monitor with 2 people
+  // should show them big, not capped to phone-sized circles).
   bestSize = Math.max(bestSize, 60);
 
   tiles.forEach(t => {
@@ -2515,7 +2542,7 @@ makeDraggable(
 let shapePickerContext = null; // '1to1' or 'group'
 
 function applyShapeToElement(el, shape) {
-  el.classList.remove('shape-circle', 'shape-square', 'shape-star', 'shape-oval-v', 'shape-oval-h', 'shape-triangle', 'shape-hexagon', 'shape-emoji');
+  el.classList.remove('shape-none', 'shape-circle', 'shape-square', 'shape-star', 'shape-oval-v', 'shape-oval-h', 'shape-triangle', 'shape-hexagon', 'shape-emoji');
   el.style.webkitMaskImage = '';
   el.style.maskImage = '';
 
