@@ -234,6 +234,10 @@ app.get('/api/group-messages/:id', async (req, res) => {
 // --- Socket.io: chat + WebRTC signaling ---
 // Track which socket belongs to which logged-in username
 const onlineUsers = new Map(); // username -> socket.id
+// callee username -> { from, video, expiresAt } — a call attempt that
+// missed the callee because they were offline (got a push instead).
+// Picked back up automatically if they come online in time.
+const pendingCalls = new Map();
 const groupCalls = new Map(); // callId -> { members: Set<username>, video: boolean }
 
 io.on('connection', (socket) => {
@@ -248,6 +252,23 @@ io.on('connection', (socket) => {
   pool.query('SELECT status_planet FROM users WHERE username = $1', [username]).then(({ rows }) => {
     io.emit('presence', { username, online: true, planet: rows[0]?.status_planet || 'earth' });
   });
+
+  // Did someone try to call us while we were offline? Pick it back up.
+  const pending = pendingCalls.get(username);
+  if (pending && pending.expiresAt > Date.now()) {
+    pendingCalls.delete(username);
+    const room = roomFor(username, pending.from);
+    socket.join(room);
+    socket.emit('incoming-call', { from: pending.from, video: pending.video });
+    // Let the caller know we're here now, in case they're still waiting —
+    // their client will send a fresh offer to actually establish the call.
+    const callerSocketId = onlineUsers.get(pending.from);
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('callee-reconnected', { contact: username });
+    }
+  } else if (pending) {
+    pendingCalls.delete(username);
+  }
 
   socket.on('join-chat', (contact) => {
     const room = roomFor(username, contact);
@@ -341,6 +362,10 @@ io.on('connection', (socket) => {
       if (targetSocket) targetSocket.join(room);
       io.to(targetSocketId).emit('incoming-call', { from: username, video });
     } else {
+      // Remember this call so that if the callee opens the app from the
+      // push notification a bit later, we can pick it back up instead of
+      // it just silently going nowhere.
+      pendingCalls.set(contact, { from: username, video: !!video, expiresAt: Date.now() + 90000 });
       sendPushToUser(contact, {
         type: 'call',
         from: username
