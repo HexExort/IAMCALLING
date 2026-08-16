@@ -35,6 +35,9 @@ async function initDb() {
     );
   `);
 
+  // Which planet represents this user when they're online (chosen by them)
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_planet TEXT DEFAULT 'earth';`);
+
   console.log('Database ready');
 }
 
