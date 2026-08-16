@@ -44,6 +44,17 @@
     0%, 100% { opacity: 0.2; }
     50% { opacity: 1; }
   }
+  #space-bg .galaxy {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(3px);
+    pointer-events: none;
+    animation: galaxy-pulse 8s ease-in-out infinite;
+  }
+  @keyframes galaxy-pulse {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+  }
   #space-bg svg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
   #space-bg .orbit-ring { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 1; }
   #space-bg .earth-dot {
@@ -448,16 +459,44 @@
 
   const container = document.getElementById('space-bg');
 
-  for (let i = 0; i < 90; i++) {
+  // Stars — varied size, twinkle speed, and occasional color tint so the
+  // sky doesn't look like a uniform grid of identical dots.
+  for (let i = 0; i < 110; i++) {
     const star = document.createElement('div');
     star.className = 'star';
-    const size = Math.random() * 2 + 0.5;
+    const size = Math.random() * 2.6 + 0.4;
     star.style.width = size + 'px';
     star.style.height = size + 'px';
     star.style.left = Math.random() * 100 + '%';
     star.style.top = Math.random() * 100 + '%';
     star.style.animationDelay = (Math.random() * 3) + 's';
+    star.style.animationDuration = (2 + Math.random() * 3.5) + 's';
+    const tint = Math.random();
+    if (tint < 0.12) star.style.background = '#a8c8ff';       // bluish-white star
+    else if (tint < 0.22) star.style.background = '#ffe3b0';  // warm yellowish star
     container.appendChild(star);
+  }
+
+  // Galaxies — soft elliptical smudges scattered far in the background,
+  // experimental but cheap: just blurred radial gradients at random hues,
+  // sizes and rotations, no two look identical.
+  for (let i = 0; i < 5; i++) {
+    const galaxy = document.createElement('div');
+    galaxy.className = 'galaxy';
+    const w = 70 + Math.random() * 140;
+    const h = w * (0.25 + Math.random() * 0.25);
+    galaxy.style.width = w + 'px';
+    galaxy.style.height = h + 'px';
+    galaxy.style.left = Math.random() * 100 + '%';
+    galaxy.style.top = Math.random() * 100 + '%';
+    galaxy.style.transform = `translate(-50%, -50%) rotate(${Math.random() * 360}deg)`;
+    const hue = 200 + Math.random() * 130; // blue through pink range
+    const opacity = 0.18 + Math.random() * 0.22;
+    galaxy.style.background =
+      `radial-gradient(ellipse at center, hsla(${hue},85%,80%,${opacity + 0.15}) 0%, ` +
+      `hsla(${hue},75%,60%,${opacity}) 35%, transparent 72%)`;
+    galaxy.style.animationDelay = (Math.random() * 6) + 's';
+    container.appendChild(galaxy);
   }
 
   const days = daysSinceJ2000();
@@ -639,6 +678,8 @@
       <button id="mute-btn" title="Микрофон" class="ctrl-green">😸</button>
       <button id="video-toggle-btn" title="Камера" class="ctrl-green">💅</button>
       <button id="camera-switch-btn" title="Сменить камеру" class="ctrl-neutral">🔄</button>
+      <button id="screenshare-btn" title="Демонстрация экрана" class="ctrl-neutral">🖥️</button>
+      <button id="speaker-btn" title="Динамик" class="ctrl-neutral">🔊</button>
       <button id="hangup" title="Завершить">🥲</button>
     </div>
   </div>
@@ -666,6 +707,8 @@
       <button id="group-mute-btn" title="Микрофон" class="ctrl-green">😸</button>
       <button id="group-video-toggle-btn" title="Камера" class="ctrl-green">💅</button>
       <button id="group-camera-switch-btn" title="Сменить камеру" class="ctrl-neutral">🔄</button>
+      <button id="group-screenshare-btn" title="Демонстрация экрана" class="ctrl-neutral">🖥️</button>
+      <button id="group-speaker-btn" title="Динамик" class="ctrl-neutral">🔊</button>
       <button id="group-reaction-btn" title="Реакция" class="ctrl-neutral">😊</button>
       <button id="group-add-btn" title="Добавить участника" class="ctrl-neutral">➕</button>
       <button id="group-hangup" title="Завершить">🥲</button>
@@ -960,6 +1003,31 @@ async function loadGroupChats() {
     const prefix = gc.last_sender === me ? '➤ ' : (gc.last_sender === '__system__' ? '' : '');
     div.innerHTML = `<div class="contact-name-row"><span style="font-size:14px;">👥</span><div class="contact-name">${escapeHtml(namesLine)}</div></div><div class="contact-preview">${escapeHtml(prefix + (gc.last_body || ''))}</div>`;
     div.onclick = () => openGroupChat(gc.id, others);
+
+    let longPressTimer = null;
+    let longPressFired = false;
+
+    div.onclick = () => {
+      if (longPressFired) { longPressFired = false; return; }
+      openGroupChat(gc.id, others);
+    };
+
+    div.oncontextmenu = (e) => {
+      e.preventDefault();
+      confirmDeleteGroupChat(gc.id);
+    };
+
+    div.addEventListener('touchstart', () => {
+      longPressFired = false;
+      longPressTimer = setTimeout(() => {
+        longPressFired = true;
+        if (navigator.vibrate) navigator.vibrate(30);
+        confirmDeleteGroupChat(gc.id);
+      }, 550);
+    });
+    div.addEventListener('touchend', () => clearTimeout(longPressTimer));
+    div.addEventListener('touchmove', () => clearTimeout(longPressTimer));
+
     listEl.appendChild(div);
   });
 }
@@ -968,6 +1036,12 @@ async function confirmDeleteChat(contact) {
   if (!confirm(`🗑️ ${contact}?`)) return;
   await fetch(`/api/messages/${encodeURIComponent(contact)}`, { method: 'DELETE' });
   await loadContacts();
+}
+
+async function confirmDeleteGroupChat(groupChatId) {
+  if (!confirm('🗑️👥?')) return;
+  await fetch(`/api/group-chats/${encodeURIComponent(groupChatId)}`, { method: 'DELETE' });
+  await loadGroupChats();
 }
 
 function escapeHtml(str) {
@@ -1850,6 +1924,104 @@ document.getElementById('camera-switch-btn').onclick = async () => {
 
 document.getElementById('hangup').onclick = () => endCall(true);
 
+// ---------- Screen sharing (1:1) ----------
+// getDisplayMedia() always shows the browser/OS's own picker (choose a
+// specific window/tab/screen) and the OS shows a persistent recording
+// indicator the whole time it's active — a script can never start or hide
+// this silently, same trust model as camera/mic access. It replaces the
+// outgoing video track over the existing encrypted WebRTC connection, no
+// new server-side access is involved.
+let isScreenSharing = false;
+
+document.getElementById('screenshare-btn').onclick = async () => {
+  if (!peerConnection) return;
+  if (isScreenSharing) {
+    await stopScreenShare();
+    return;
+  }
+  try {
+    const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    const screenTrack = screenStream.getVideoTracks()[0];
+    const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+    if (sender) {
+      await sender.replaceTrack(screenTrack);
+    } else {
+      peerConnection.addTrack(screenTrack, screenStream);
+      const offer = await peerConnection.createOffer();
+      await peerConnection.setLocalDescription(offer);
+      socket.emit('signal', { contact: currentContact, data: peerConnection.localDescription });
+    }
+    document.getElementById('local-video').srcObject = screenStream;
+    document.getElementById('local-video').style.display = 'block';
+    document.getElementById('local-video').classList.remove('mirrored');
+    isScreenSharing = true;
+    document.getElementById('screenshare-btn').classList.add('active-off');
+    screenTrack.onended = () => stopScreenShare();
+  } catch (err) {
+    // User cancelled the share picker or denied permission — nothing to do
+  }
+};
+
+async function stopScreenShare() {
+  if (!isScreenSharing) return;
+  isScreenSharing = false;
+  document.getElementById('screenshare-btn').classList.remove('active-off');
+  try {
+    const camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode }, audio: false });
+    const camTrack = camStream.getVideoTracks()[0];
+    const sender = peerConnection && peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
+    if (sender) await sender.replaceTrack(camTrack);
+    if (localStream) {
+      const oldTrack = localStream.getVideoTracks()[0];
+      if (oldTrack) { localStream.removeTrack(oldTrack); oldTrack.stop(); }
+      localStream.addTrack(camTrack);
+      document.getElementById('local-video').srcObject = localStream;
+      document.getElementById('local-video').classList.toggle('mirrored', currentFacingMode === 'user');
+    }
+  } catch (e) {
+    console.warn('Failed to restore camera after screen share', e);
+  }
+}
+
+// ---------- Speaker output toggle (1:1) ----------
+// Honest limitation: there is no cross-browser way to force "earpiece vs
+// loudspeaker" the way a native app can — that's phone-hardware audio
+// routing, not something the web platform exposes. This cycles through
+// whatever output DEVICES the browser reports (setSinkId), which mainly
+// works on desktop Chrome/Edge and some Android Chrome versions. iOS
+// Safari does not support setSinkId at all as of this writing.
+let audioOutputDevices = [];
+let currentSinkIndex = 0;
+
+async function cycleSpeakerOutput(elements) {
+  if (!HTMLMediaElement.prototype.setSinkId) {
+    alert('🔊✖ (iOS Safari)');
+    return;
+  }
+  try {
+    if (audioOutputDevices.length === 0) {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      audioOutputDevices = devices.filter(d => d.kind === 'audiooutput');
+    }
+    if (audioOutputDevices.length <= 1) {
+      alert('🔊 (1)');
+      return;
+    }
+    currentSinkIndex = (currentSinkIndex + 1) % audioOutputDevices.length;
+    const deviceId = audioOutputDevices[currentSinkIndex].deviceId;
+    for (const el of elements) {
+      if (el) await el.setSinkId(deviceId);
+    }
+  } catch (e) {
+    console.warn('setSinkId failed', e);
+  }
+}
+
+document.getElementById('speaker-btn').onclick = () => {
+  cycleSpeakerOutput([document.getElementById('remote-video')]);
+};
+
+
 function showIncomingCallScreen(from, video) {
   document.getElementById('incoming-call-text').textContent =
     `${video ? '📹' : '📞'} ${from}`;
@@ -1873,6 +2045,12 @@ function showIncomingCallScreen(from, video) {
 }
 
 function endCall(notifyServer) {
+  if (isScreenSharing) {
+    isScreenSharing = false;
+    document.getElementById('screenshare-btn').classList.remove('active-off');
+    const currentTrack = document.getElementById('local-video').srcObject?.getVideoTracks()[0];
+    if (currentTrack) currentTrack.stop();
+  }
   const wasInCall = inCall;
   const degreesRotated = callWasConnected ? totalDegreesRotated(callStartTime) : 0;
   clearInterval(callDegreeInterval);
@@ -2197,6 +2375,12 @@ function showGroupInviteScreen(callId, from, video) {
 }
 
 function endGroupCall(notifyServer) {
+  if (isGroupScreenSharing) {
+    isGroupScreenSharing = false;
+    document.getElementById('group-screenshare-btn').classList.remove('active-off');
+    const currentTrack = document.getElementById('group-local-video').srcObject?.getVideoTracks()[0];
+    if (currentTrack) currentTrack.stop();
+  }
   stopSpaceRingtone();
   stopIncomingAlert();
   const degreesRotated = totalDegreesRotated(groupCallStartTime);
@@ -2230,6 +2414,71 @@ function endGroupCall(notifyServer) {
 }
 
 document.getElementById('group-hangup').onclick = () => endGroupCall(true);
+
+// ---------- Screen sharing (group) — replaces outgoing video for everyone ----------
+let isGroupScreenSharing = false;
+
+document.getElementById('group-screenshare-btn').onclick = async () => {
+  if (groupPeers.size === 0 && !groupLocalStream) return;
+  if (isGroupScreenSharing) {
+    await stopGroupScreenShare();
+    return;
+  }
+  try {
+    const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    const screenTrack = screenStream.getVideoTracks()[0];
+
+    for (const [username, pc] of groupPeers.entries()) {
+      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if (sender) {
+        await sender.replaceTrack(screenTrack);
+      } else {
+        pc.addTrack(screenTrack, screenStream);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('group-signal', { callId: currentCallId, to: username, data: pc.localDescription });
+      }
+    }
+
+    document.getElementById('group-local-video').srcObject = screenStream;
+    document.getElementById('group-local-video').style.display = 'block';
+    document.getElementById('group-local-video').classList.remove('mirrored');
+    isGroupScreenSharing = true;
+    document.getElementById('group-screenshare-btn').classList.add('active-off');
+    screenTrack.onended = () => stopGroupScreenShare();
+  } catch (err) {
+    // User cancelled the share picker or denied permission
+  }
+};
+
+async function stopGroupScreenShare() {
+  if (!isGroupScreenSharing) return;
+  isGroupScreenSharing = false;
+  document.getElementById('group-screenshare-btn').classList.remove('active-off');
+  try {
+    const camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: groupFacingMode }, audio: false });
+    const camTrack = camStream.getVideoTracks()[0];
+    for (const pc of groupPeers.values()) {
+      const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+      if (sender) await sender.replaceTrack(camTrack);
+    }
+    if (groupLocalStream) {
+      const oldTrack = groupLocalStream.getVideoTracks()[0];
+      if (oldTrack) { groupLocalStream.removeTrack(oldTrack); oldTrack.stop(); }
+      groupLocalStream.addTrack(camTrack);
+      document.getElementById('group-local-video').srcObject = groupLocalStream;
+      document.getElementById('group-local-video').classList.toggle('mirrored', groupFacingMode === 'user');
+    }
+  } catch (e) {
+    console.warn('Failed to restore camera after group screen share', e);
+  }
+}
+
+// ---------- Speaker output toggle (group) ----------
+document.getElementById('group-speaker-btn').onclick = () => {
+  const els = Array.from(document.querySelectorAll('.group-tile video'));
+  cycleSpeakerOutput(els);
+};
 
 document.getElementById('group-mute-btn').onclick = () => {
   if (!groupLocalStream) return;
