@@ -56,6 +56,9 @@ async function initDb() {
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS group_chat_id TEXT;`);
   await pool.query(`ALTER TABLE messages ALTER COLUMN room DROP NOT NULL;`);
 
+  // Which visual theme the user has chosen — 'space' or 'aquarium'
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS theme TEXT DEFAULT 'space';`);
+
   console.log('Database ready');
 }
 
