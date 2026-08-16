@@ -38,6 +38,24 @@ async function initDb() {
   // Which planet represents this user when they're online (chosen by them)
   await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS status_planet TEXT DEFAULT 'earth';`);
 
+  // Group chats — created automatically from a group call (video or audio),
+  // with everyone who joined that call as a member
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS group_chats (
+      id TEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS group_chat_members (
+      group_chat_id TEXT NOT NULL,
+      username TEXT NOT NULL,
+      PRIMARY KEY (group_chat_id, username)
+    );
+  `);
+  await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS group_chat_id TEXT;`);
+  await pool.query(`ALTER TABLE messages ALTER COLUMN room DROP NOT NULL;`);
+
   console.log('Database ready');
 }
 
