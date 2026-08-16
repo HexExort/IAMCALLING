@@ -46,6 +46,14 @@
   }
   #space-bg svg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
   #space-bg .orbit-ring { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 1; }
+  #space-bg .earth-dot {
+    animation: earth-dot-blink 1.8s ease-in-out infinite;
+    transform-box: fill-box; transform-origin: center;
+  }
+  @keyframes earth-dot-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
   #space-bg .planet-label {
     fill: rgba(255,255,255,0.55); font-size: 8px; font-family: monospace;
   }
@@ -208,12 +216,12 @@
   }
   .shape-emoji { clip-path: none; border-radius: 0 !important; background: transparent !important; }
 
-  #shape-picker-modal {
+  #shape-picker-modal, #status-planet-modal {
     position: fixed; inset: 0; background: rgba(0,0,0,0.7);
     display: none; align-items: center; justify-content: center; z-index: 30;
     padding: 20px;
   }
-  #shape-picker-modal.active { display: flex; }
+  #shape-picker-modal.active, #status-planet-modal.active { display: flex; }
   #shape-picker-box {
     background: #1a1a1a; border-radius: 12px; padding: 20px;
     display: flex; flex-direction: column; gap: 10px; width: 300px;
@@ -376,10 +384,14 @@
   .contact-name { font-weight: 600; font-size: 16px; }
   .contact-name-row { display: flex; align-items: center; gap: 6px; }
   .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: #555; }
-  .status-dot.online { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
+  .status-dot.online { animation: dot-blink 1.6s ease-in-out infinite; }
+  @keyframes dot-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
   .contact-preview { color: #999; font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty-state { text-align: center; color: #666; padding: 40px 20px; font-size: 14px; }
-  #chat-with-status { font-size: 12px; color: #999; font-weight: normal; }
+  #chat-with-status { display: flex; align-items: center; }
 </style>
 </head>
 <body>
@@ -442,7 +454,8 @@
     const px = cx + r * Math.cos(angleRad);
     const py = cy + r * Math.sin(angleRad);
     const dotSize = (p.name === 'Юпитер' || p.name === 'Сатурн') ? 3.5 : 2.2;
-    svg += `<circle cx="${px.toFixed(2)}" cy="${py.toFixed(2)}" r="${dotSize}" fill="${p.color}"><title>${p.name}</title></circle>`;
+    const isEarth = p.name === 'Земля';
+    svg += `<circle class="${isEarth ? 'earth-dot' : ''}" cx="${px.toFixed(2)}" cy="${py.toFixed(2)}" r="${dotSize}" fill="${p.color}"><title>${p.name}</title></circle>`;
   });
 
   svg += `</svg>`;
@@ -453,11 +466,11 @@
 <!-- AUTH SCREEN -->
 <div id="auth-screen" class="screen active centered">
   <form id="auth-form">
-    <h2 id="auth-title">Вход</h2>
-    <input id="username-input" type="text" placeholder="Никнейм" autocomplete="username" required>
-    <input id="password-input" type="password" placeholder="Пароль" autocomplete="current-password" required>
-    <button type="submit" id="auth-submit">Войти</button>
-    <button type="button" class="link-btn" id="toggle-auth">Нет аккаунта? Зарегистрироваться</button>
+    <h2 id="auth-title" style="text-align:center; font-size:36px;">🔓</h2>
+    <input id="username-input" type="text" placeholder="👤" autocomplete="username" required>
+    <input id="password-input" type="password" placeholder="🔒" autocomplete="current-password" required>
+    <button type="submit" id="auth-submit">➤</button>
+    <button type="button" class="link-btn" id="toggle-auth" style="font-size:20px; text-decoration:none;">🔄</button>
     <div class="error" id="auth-error"></div>
   </form>
 </div>
@@ -465,14 +478,17 @@
 <!-- CONTACT SCREEN -->
 <div id="contact-screen" class="screen">
   <div style="padding:16px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333;">
-    <h2 style="margin:0;">Чаты</h2>
-    <button type="button" class="link-btn" id="logout-btn">Выйти</button>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="font-size:22px;">💬</span>
+      <button type="button" id="my-status-btn" title="status" style="width:auto; background:none; padding:4px; display:flex; align-items:center;"><span id="my-status-dot" class="status-dot online" style="width:14px;height:14px;"></span></button>
+    </div>
+    <button type="button" id="logout-btn" style="width:auto; background:none; font-size:22px; padding:4px;">🖐️</button>
   </div>
   <div id="contacts-list" style="flex:1; overflow-y:auto; padding:8px 0;"></div>
   <div id="contact-error" style="text-align:center; color:#f87171; font-size:13px; padding:0 12px; min-height:16px;"></div>
   <form id="contact-form" style="padding:12px; border-top:1px solid #333; flex-direction:row; gap:8px; margin:0; max-width:none;">
-    <input id="contact-input" type="text" placeholder="Никнейм нового собеседника" style="flex:1;" required>
-    <button type="submit" style="width:auto;">Написать</button>
+    <input id="contact-input" type="text" placeholder="👤+" style="flex:1;" required>
+    <button type="submit" style="width:auto;">➕</button>
   </form>
 </div>
 
@@ -480,83 +496,88 @@
 <div id="chat-screen" class="screen">
   <div id="chat-header">
     <div class="top-nav">
-      <button id="back-btn">← Назад</button>
+      <button id="back-btn">←</button>
       <div>
         <div id="chat-with"></div>
         <div id="chat-with-status"></div>
       </div>
     </div>
     <div style="display:flex; gap:6px;">
-      <button id="group-call-btn" title="Групповой звонок">👥</button>
-      <button id="call-btn">📞 Позвонить</button>
+      <button id="group-call-btn">👥</button>
+      <button id="call-btn">📞</button>
     </div>
   </div>
   <div id="messages"></div>
   <form id="message-form">
-    <input id="message-input" type="text" placeholder="Сообщение..." autocomplete="off">
-    <button type="submit">Отправить</button>
+    <input id="message-input" type="text" placeholder="💬" autocomplete="off">
+    <button type="submit">➤</button>
   </form>
 </div>
 
 <!-- GROUP CALL PARTICIPANT SELECTION MODAL -->
 <div id="group-select-modal">
   <div id="group-select-box">
-    <h2 style="margin-top:0;">Групповой звонок</h2>
-    <p style="color:#999; font-size:13px; margin-top:-8px;">Выберите участников (до 7 человек + вы)</p>
+    <h2 style="margin-top:0; text-align:center;">👥📞</h2>
     <div id="group-select-list"></div>
     <div style="display:flex; gap:8px;">
-      <input id="group-select-input" type="text" placeholder="Добавить по нику" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault(); document.getElementById('group-select-add-btn').click();}">
-      <button id="group-select-add-btn" style="width:auto;">+</button>
+      <input id="group-select-input" type="text" placeholder="👤+" style="flex:1;" onkeydown="if(event.key==='Enter'){event.preventDefault(); document.getElementById('group-select-add-btn').click();}">
+      <button id="group-select-add-btn" style="width:auto;">➕</button>
     </div>
-    <div id="group-select-error" style="color:#f87171; font-size:13px; min-height:16px;"></div>
+    <div id="group-select-error" style="color:#f87171; font-size:13px; min-height:16px; text-align:center;"></div>
     <div style="display:flex; gap:12px;">
-      <button id="group-select-audio-btn" style="background:#dc2626; flex:1;">🏃 Аудио</button>
-      <button id="group-select-video-btn" style="background:#16a34a; flex:1;">🧘 Видео</button>
+      <button id="group-select-audio-btn" style="background:#dc2626; flex:1;">🏃</button>
+      <button id="group-select-video-btn" style="background:#16a34a; flex:1;">🧘</button>
     </div>
-    <button id="group-select-cancel-btn" style="background:none; color:#999;">Отмена</button>
+    <button id="group-select-cancel-btn" style="background:none; color:#999;">✖</button>
+  </div>
+</div>
+
+<!-- MY STATUS PLANET PICKER -->
+<div id="status-planet-modal">
+  <div class="group-select-box-style">
+    <div class="shape-options" id="status-planet-options"></div>
+    <button id="status-planet-close" style="background:none; color:#999;">✖</button>
   </div>
 </div>
 
 <!-- VIDEO SHAPE PICKER (tap your own video during a call) -->
 <div id="shape-picker-modal">
   <div id="shape-picker-box">
-    <h2 style="margin-top:0;">Форма видео</h2>
-    <p style="color:#999; font-size:12px; margin-top:-6px;">Изменится и для остальных участников</p>
     <div class="shape-options">
-      <button data-shape="circle">⚪ Круг</button>
-      <button data-shape="square">◻️ Квадрат</button>
-      <button data-shape="star">⭐ Звезда</button>
-      <button data-shape="oval-v">🥚 Овал верт.</button>
-      <button data-shape="oval-h">🏈 Овал гориз.</button>
-      <button data-shape="triangle">🔺 Треугольник</button>
-      <button data-shape="hexagon">⬡ Шестиугольник</button>
-      <button data-shape="emoji">🧌 Тролль</button>
+      <button data-shape="circle">⚪</button>
+      <button data-shape="square">◻️</button>
+      <button data-shape="star">⭐</button>
+      <button data-shape="oval-v">🥚</button>
+      <button data-shape="oval-h">🏈</button>
+      <button data-shape="triangle">🔺</button>
+      <button data-shape="hexagon">⬡</button>
+      <button data-shape="emoji">🧌</button>
     </div>
-    <button id="shape-picker-close" style="background:none; color:#999;">Закрыть</button>
+    <button id="shape-picker-close" style="background:none; color:#999;">✖</button>
   </div>
 </div>
 
 <!-- ADD PARTICIPANT TO ONGOING CALL MODAL -->
 <div id="add-participant-modal">
   <div class="group-select-box-style">
-    <h2 style="margin-top:0;">Добавить в звонок</h2>
+    <h2 style="margin-top:0; text-align:center;">➕👥</h2>
     <div id="add-participant-list"></div>
     <div style="display:flex; gap:8px;">
-      <input id="add-participant-input" type="text" placeholder="По нику" style="flex:1;">
-      <button id="add-participant-add-btn" style="width:auto;">Добавить</button>
+      <input id="add-participant-input" type="text" placeholder="👤" style="flex:1;">
+      <button id="add-participant-add-btn" style="width:auto;">➕</button>
     </div>
-    <div id="add-participant-error" style="color:#f87171; font-size:13px; min-height:16px;"></div>
-    <button id="add-participant-close-btn" style="background:none; color:#999;">Закрыть</button>
+    <div id="add-participant-error" style="color:#f87171; font-size:13px; min-height:16px; text-align:center;"></div>
+    <button id="add-participant-close-btn" style="background:none; color:#999;">✖</button>
   </div>
 </div>
 
 <!-- GROUP CALL INCOMING INVITE MODAL -->
 <div id="group-invite-modal">
   <div class="incoming-call-box-style">
-    <h2 id="group-invite-text" style="margin-top:0;">Групповой звонок</h2>
+    <h2 id="group-invite-text" style="margin-top:0;">👥📞</h2>
     <div style="display:flex; gap:12px;">
-      <button id="group-decline-btn" style="background:#dc2626;">🥲 Отклонить</button>
-      <button id="group-accept-btn" style="background:#16a34a;">✅ Присоединиться</button>
+      <button id="group-decline-btn" style="background:#dc2626;">🥲</button>
+      <button id="group-accept-btn" style="background:#16a34a;">✅</button>
     </div>
   </div>
 </div>
@@ -564,10 +585,10 @@
 <!-- INCOMING CALL MODAL (non-blocking, unlike native confirm()) -->
 <div id="incoming-call-modal">
   <div id="incoming-call-box">
-    <h2 id="incoming-call-text" style="margin-top:0;">Входящий звонок</h2>
+    <h2 id="incoming-call-text" style="margin-top:0;">📞</h2>
     <div style="display:flex; gap:12px;">
-      <button id="decline-call-btn" style="background:#dc2626;">🥲 Отклонить</button>
-      <button id="accept-call-btn" style="background:#16a34a;">✅ Ответить</button>
+      <button id="decline-call-btn" style="background:#dc2626;">🥲</button>
+      <button id="accept-call-btn" style="background:#16a34a;">✅</button>
     </div>
   </div>
 </div>
@@ -575,17 +596,16 @@
 <!-- CALL TYPE MODAL -->
 <div id="call-type-modal">
   <div id="call-type-box">
-    <h2 style="margin-top:0;">Тип звонка</h2>
-    <button id="call-audio-btn" class="call-type-btn" style="background:#dc2626;">🏃 Только аудио</button>
-    <button id="call-video-btn" class="call-type-btn" style="background:#16a34a;">🧘 Аудио и видео</button>
-    <button id="call-cancel-btn" style="background:none; color:#999;">Отмена</button>
+    <button id="call-audio-btn" class="call-type-btn" style="background:#dc2626;">🏃</button>
+    <button id="call-video-btn" class="call-type-btn" style="background:#16a34a;">🧘</button>
+    <button id="call-cancel-btn" style="background:none; color:#999;">✖</button>
   </div>
 </div>
 
 <!-- CALL SCREEN -->
 <div id="call-screen" class="screen">
   <div id="call-screen-inner">
-    <div id="call-status">Вызов...</div>
+    <div id="call-status">📞</div>
     <div id="call-duration" style="display:none;"></div>
     <div id="debug-status"></div>
     <video id="remote-video" autoplay playsinline></video>
@@ -602,7 +622,7 @@
 <!-- GROUP CALL SCREEN -->
 <div id="group-call-screen" class="screen">
   <div id="group-call-inner">
-    <div id="group-call-status">Соединяем...</div>
+    <div id="group-call-status">📡</div>
     <div id="group-call-duration" style="display:none;"></div>
     <div id="group-tiles"></div>
     <div id="group-reactions-layer"></div>
@@ -692,7 +712,20 @@ let groupIsMuted = false;
 let groupIsVideoOff = false;
 let groupHasVideo = false;
 let groupFacingMode = 'user';
-let onlineUsernames = new Set();
+let onlineUsernames = new Map(); // username -> planet name
+let myStatusPlanet = 'earth';
+
+const PLANET_COLORS = {
+  mercury: '#b1adad',
+  venus: '#e6c229',
+  earth: '#3b82f6',
+  mars: '#c1440e',
+  jupiter: '#d9a066',
+  saturn: '#e3c16f',
+  uranus: '#7fd4e0',
+  neptune: '#3f54ba'
+};
+const PLANET_ORDER = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 
 const config = {
   iceServers: [
@@ -725,14 +758,16 @@ const authForm = document.getElementById('auth-form');
 const authTitle = document.getElementById('auth-title');
 const authSubmit = document.getElementById('auth-submit');
 const authError = document.getElementById('auth-error');
+const AUTH_ERROR_ICONS = {
+  INVALID_INPUT: '⚠️👤🔒',
+  USERNAME_TAKEN: '⚠️👤✖',
+  USER_NOT_FOUND: '❓👤',
+  WRONG_PASSWORD: '🔒✖'
+};
 
 document.getElementById('toggle-auth').onclick = () => {
   isRegisterMode = !isRegisterMode;
-  authTitle.textContent = isRegisterMode ? 'Регистрация' : 'Вход';
-  authSubmit.textContent = isRegisterMode ? 'Зарегистрироваться' : 'Войти';
-  document.getElementById('toggle-auth').textContent = isRegisterMode
-    ? 'Уже есть аккаунт? Войти'
-    : 'Нет аккаунта? Зарегистрироваться';
+  authTitle.textContent = isRegisterMode ? '🔓➕' : '🔓';
   authError.textContent = '';
 };
 
@@ -750,19 +785,20 @@ authForm.onsubmit = async (e) => {
     });
     const data = await res.json();
     if (!res.ok) {
-      authError.textContent = data.error || 'Ошибка';
+      authError.textContent = AUTH_ERROR_ICONS[data.error] || '⚠️';
       return;
     }
     me = data.username;
     afterLogin();
   } catch (err) {
-    authError.textContent = 'Не удалось связаться с сервером';
+    authError.textContent = '📡✖';
   }
 };
 
 async function afterLogin() {
   connectSocket();
   await refreshOnlineUsers();
+  await refreshMyStatusPlanet();
   await setupPush();
   await loadContacts();
   show('contact-screen');
@@ -772,26 +808,76 @@ async function refreshOnlineUsers() {
   try {
     const res = await fetch('/api/online-users');
     const list = await res.json();
-    onlineUsernames = new Set(list);
+    onlineUsernames = new Map(list.map(u => [u.username, u.planet]));
   } catch (e) {}
 }
 
+async function refreshMyStatusPlanet() {
+  try {
+    const res = await fetch('/api/status-planet');
+    const { planet } = await res.json();
+    myStatusPlanet = planet;
+    updateStatusPlanetIcon();
+  } catch (e) {}
+}
+
+function updateStatusPlanetIcon() {
+  const dot = document.getElementById('my-status-dot');
+  const color = PLANET_COLORS[myStatusPlanet] || PLANET_COLORS.earth;
+  dot.style.background = color;
+  dot.style.boxShadow = `0 0 4px ${color}`;
+}
+
+document.getElementById('my-status-btn').onclick = () => {
+  const optionsEl = document.getElementById('status-planet-options');
+  optionsEl.innerHTML = '';
+  PLANET_ORDER.forEach(planet => {
+    const btn = document.createElement('button');
+    btn.style.display = 'flex';
+    btn.style.flexDirection = 'column';
+    btn.style.alignItems = 'center';
+    btn.style.gap = '4px';
+    const dot = document.createElement('span');
+    dot.style.width = '22px';
+    dot.style.height = '22px';
+    dot.style.borderRadius = '50%';
+    dot.style.background = PLANET_COLORS[planet];
+    if (planet === myStatusPlanet) dot.style.boxShadow = `0 0 0 3px #fff`;
+    btn.appendChild(dot);
+    btn.onclick = async () => {
+      await fetch('/api/status-planet', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planet })
+      });
+      myStatusPlanet = planet;
+      updateStatusPlanetIcon();
+      document.getElementById('status-planet-modal').classList.remove('active');
+    };
+    optionsEl.appendChild(btn);
+  });
+  document.getElementById('status-planet-modal').classList.add('active');
+};
+
+document.getElementById('status-planet-close').onclick = () => {
+  document.getElementById('status-planet-modal').classList.remove('active');
+};
+
 async function loadContacts() {
   const listEl = document.getElementById('contacts-list');
-  listEl.innerHTML = '<div class="empty-state">Загрузка...</div>';
+  listEl.innerHTML = '<div class="empty-state">⏳</div>';
   const res = await fetch('/api/contacts');
   const contacts = await res.json();
   if (contacts.length === 0) {
-    listEl.innerHTML = '<div class="empty-state">Пока нет переписок.<br>Введите ник ниже, чтобы начать.</div>';
+    listEl.innerHTML = '<div class="empty-state">💬∅</div>';
     return;
   }
   listEl.innerHTML = '';
   contacts.forEach(c => {
     const div = document.createElement('div');
     div.className = 'contact-item';
-    const prefix = c.lastSender === me ? 'Вы: ' : '';
-    const online = onlineUsernames.has(c.contact);
-    div.innerHTML = `<div class="contact-name-row"><span class="status-dot${online ? ' online' : ''}" id="dot-${escapeHtml(c.contact)}"></span><div class="contact-name">${escapeHtml(c.contact)}</div></div><div class="contact-preview">${escapeHtml(prefix + previewText(c))}</div>`;
+    const prefix = c.lastSender === me ? '➤ ' : '';
+    div.innerHTML = `<div class="contact-name-row">${planetDotHtml(c.contact)}<div class="contact-name">${escapeHtml(c.contact)}</div></div><div class="contact-preview">${escapeHtml(prefix + previewText(c))}</div>`;
 
     let longPressTimer = null;
     let longPressFired = false;
@@ -824,7 +910,7 @@ async function loadContacts() {
 }
 
 async function confirmDeleteChat(contact) {
-  if (!confirm(`Удалить переписку с ${contact}? Это нельзя отменить.`)) return;
+  if (!confirm(`🗑️ ${contact}?`)) return;
   await fetch(`/api/messages/${encodeURIComponent(contact)}`, { method: 'DELETE' });
   await loadContacts();
 }
@@ -848,7 +934,7 @@ function previewText(c) {
 async function openChat(contact) {
   currentContact = contact;
   document.getElementById('chat-with').textContent = contact;
-  document.getElementById('chat-with-status').textContent = onlineUsernames.has(contact) ? '● онлайн' : '○ офлайн';
+  document.getElementById('chat-with-status').innerHTML = planetDotHtml(contact);
   document.getElementById('messages').innerHTML = '';
 
   socket.emit('join-chat', contact);
@@ -1001,19 +1087,33 @@ function connectSocket() {
     showFloatingReaction(from, emoji);
   });
 
-  socket.on('presence', ({ username, online }) => {
-    if (online) onlineUsernames.add(username);
+  socket.on('presence', ({ username, online, planet }) => {
+    if (online) onlineUsernames.set(username, planet || onlineUsernames.get(username) || 'earth');
     else onlineUsernames.delete(username);
     updatePresenceUI(username);
   });
 }
 
+function planetDotHtml(username, extraClass) {
+  const online = onlineUsernames.has(username);
+  const planet = onlineUsernames.get(username) || 'earth';
+  const color = online ? PLANET_COLORS[planet] : '#555';
+  return `<span class="status-dot${online ? ' online' : ''} ${extraClass || ''}" id="dot-${escapeHtml(username)}" style="background:${color};${online ? `box-shadow:0 0 4px ${color};` : ''}"></span>`;
+}
+
 function updatePresenceUI(username) {
-  const isOnline = onlineUsernames.has(username);
+  const online = onlineUsernames.has(username);
+  const planet = onlineUsernames.get(username) || 'earth';
+  const color = online ? PLANET_COLORS[planet] : '#555';
   const dot = document.getElementById('dot-' + username);
-  if (dot) dot.classList.toggle('online', isOnline);
+  if (dot) {
+    dot.classList.toggle('online', online);
+    dot.style.background = color;
+    dot.style.boxShadow = online ? `0 0 4px ${color}` : 'none';
+  }
   if (currentContact === username) {
-    document.getElementById('chat-with-status').textContent = isOnline ? '● онлайн' : '○ офлайн';
+    const el = document.getElementById('chat-with-status');
+    el.innerHTML = planetDotHtml(username);
   }
 }
 
@@ -1064,14 +1164,14 @@ document.getElementById('contact-form').onsubmit = async (e) => {
   errorEl.textContent = '';
   if (!contact) return;
   if (contact === me) {
-    errorEl.textContent = 'Нельзя написать самому себе';
+    errorEl.textContent = '🚫👤';
     return;
   }
 
   const res = await fetch(`/api/user-exists/${encodeURIComponent(contact)}`);
   const { exists } = await res.json();
   if (!exists) {
-    errorEl.textContent = 'Такого контакта нет';
+    errorEl.textContent = '❓👤';
     return;
   }
 
@@ -1149,6 +1249,7 @@ document.getElementById('message-form').onsubmit = (e) => {
   const body = input.value.trim();
   if (!body || !currentContact) return;
   socket.emit('chat-message', { contact: currentContact, body });
+  playSendBeep();
   input.value = '';
 };
 
@@ -1283,6 +1384,25 @@ function playNotificationBeep() {
   if (navigator.vibrate) navigator.vibrate([120]);
 }
 
+// Same tone, one octave lower — played when I send a message
+function playSendBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(900, ctx.currentTime);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.01);
+    gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.13);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.14);
+    osc.onended = () => ctx.close();
+  } catch (e) {}
+}
+
 // ---------- "Zooming into Earth" transition when opening a chat ----------
 function playEarthZoomEffect() {
   const overlay = document.createElement('div');
@@ -1308,7 +1428,7 @@ async function startCall(isCaller, withVideo) {
   callWasConnected = false;
   show('call-screen');
   document.getElementById('call-status').style.display = 'block';
-  document.getElementById('call-status').textContent = isCaller ? '📡 Отправляем сигнал...' : '📡 Спутник ищет сигнал...';
+  document.getElementById('call-status').textContent = isCaller ? '📡➤' : '📡';
   startRingtone();
 
   const videoToggleBtn = document.getElementById('video-toggle-btn');
@@ -1357,7 +1477,7 @@ async function startCall(isCaller, withVideo) {
       }
     } else if (['failed', 'disconnected', 'closed'].includes(peerConnection.connectionState)) {
       document.getElementById('call-status').style.display = 'block';
-      document.getElementById('call-status').textContent = '📡 Сигнал потерян...';
+      document.getElementById('call-status').textContent = '📡✖';
       stopRingtone();
     }
   };
@@ -1399,7 +1519,7 @@ async function startCall(isCaller, withVideo) {
   connectTimeoutId = setTimeout(() => {
     if (inCall && peerConnection && peerConnection.connectionState !== 'connected') {
       endCall(true);
-      alert('Не удалось установить соединение. Попробуйте позвонить ещё раз.');
+      alert('📡✖');
     }
   }, 20000);
 }
@@ -1441,7 +1561,7 @@ document.getElementById('video-toggle-btn').onclick = async () => {
       await peerConnection.setLocalDescription(offer);
       socket.emit('signal', { contact: currentContact, data: peerConnection.localDescription });
     } catch (err) {
-      alert('Не удалось включить камеру');
+      alert('📷✖');
     }
     return;
   }
@@ -1484,7 +1604,7 @@ document.getElementById('camera-switch-btn').onclick = async () => {
   } catch (err) {
     // Some devices (most laptops) only have one camera and will fail here
     currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user'; // revert
-    alert('Не удалось переключить камеру (возможно, на этом устройстве только одна камера)');
+    alert('🔄📷✖');
   }
 };
 
@@ -1492,7 +1612,7 @@ document.getElementById('hangup').onclick = () => endCall(true);
 
 function showIncomingCallScreen(from, video) {
   document.getElementById('incoming-call-text').textContent =
-    `${video ? 'Видеозвонок' : 'Аудиозвонок'} от ${from}`;
+    `${video ? '📹' : '📞'} ${from}`;
   document.getElementById('incoming-call-modal').classList.add('active');
 
   document.getElementById('accept-call-btn').onclick = () => {
@@ -1527,7 +1647,7 @@ function endCall(notifyServer) {
   document.getElementById('remote-video').srcObject = null;
   document.getElementById('debug-status').textContent = '';
   document.getElementById('call-status').style.display = 'block';
-  document.getElementById('call-status').textContent = 'Вызов...';
+  document.getElementById('call-status').textContent = '📞';
   if (notifyServer && currentContact) {
     socket.emit('call-ended', { contact: currentContact });
   }
@@ -1540,16 +1660,16 @@ function endCall(notifyServer) {
     if (callWasConnected) {
       socket.emit('system-message', {
         contact: currentContact,
-        body: `Надеюсь, разговор был полезен для тебя 😊 (Земля повернулась на ${degreesRotated.toFixed(3)}° за время разговора)`
+        body: `📞✅😊 🌍${degreesRotated.toFixed(3)}°`
       });
     } else {
       socket.emit('system-message', {
         contact: currentContact,
-        body: `§AUD:${currentContact}§Ты не ответил на звонок, возможно ты упустил что-то важное 😢`
+        body: `§AUD:${currentContact}§📞✖😢`
       });
       socket.emit('system-message', {
         contact: currentContact,
-        body: `§AUD:${me}§Подожди немного и тебе обязательно ответят 😊`
+        body: `§AUD:${me}§📞⏳😊`
       });
     }
   }
@@ -1690,7 +1810,7 @@ async function startGroupCall(contacts, withVideo) {
   await setupGroupLocalMedia(withVideo);
   show('group-call-screen');
   document.getElementById('group-call-status').style.display = 'block';
-  document.getElementById('group-call-status').textContent = '🛰️ Выходим на связь...';
+  document.getElementById('group-call-status').textContent = '🛰️';
   socket.emit('start-group-call', { contacts, video: withVideo }, (response) => {
     currentCallId = response.callId;
   });
@@ -1698,7 +1818,7 @@ async function startGroupCall(contacts, withVideo) {
 
 function showGroupInviteScreen(callId, from, video) {
   document.getElementById('group-invite-text').textContent =
-    `${video ? 'Групповой видеозвонок' : 'Групповой аудиозвонок'} от ${from}`;
+    `👥${video ? '📹' : '📞'} ${from}`;
   document.getElementById('group-invite-modal').classList.add('active');
 
   document.getElementById('group-accept-btn').onclick = async () => {
@@ -1706,11 +1826,11 @@ function showGroupInviteScreen(callId, from, video) {
     await setupGroupLocalMedia(video);
     show('group-call-screen');
     document.getElementById('group-call-status').style.display = 'block';
-    document.getElementById('group-call-status').textContent = '📡 Спутник ищет сигнал...';
+    document.getElementById('group-call-status').textContent = '📡';
 
     socket.emit('join-group-call', { callId }, async (response) => {
       if (response.error) {
-        alert(response.error);
+        alert(response.error === 'CALL_FULL' ? '👥✖ (8)' : '📞✖');
         endGroupCall(false);
         return;
       }
@@ -1754,7 +1874,7 @@ function endGroupCall(notifyServer) {
   loadContacts();
 
   if (degreesRotated > 0) {
-    alert(`Групповой разговор длился ${degreesRotated.toFixed(3)}° поворота Земли 😊`);
+    alert(`👥📞😊 🌍${degreesRotated.toFixed(3)}°`);
   }
 }
 
@@ -1797,7 +1917,7 @@ document.getElementById('group-video-toggle-btn').onclick = async () => {
         socket.emit('group-signal', { callId: currentCallId, to: username, data: pc.localDescription });
       }
     } catch (err) {
-      alert('Не удалось включить камеру');
+      alert('📷✖');
     }
     return;
   }
@@ -1830,7 +1950,7 @@ document.getElementById('group-camera-switch-btn').onclick = async () => {
     document.getElementById('group-local-video').classList.toggle('mirrored', groupFacingMode === 'user');
   } catch (err) {
     groupFacingMode = groupFacingMode === 'user' ? 'environment' : 'user'; // revert
-    alert('Не удалось переключить камеру (возможно, на этом устройстве только одна камера)');
+    alert('🔄📷✖');
   }
 };
 
@@ -1887,7 +2007,7 @@ document.getElementById('group-select-add-btn').onclick = async () => {
   const res = await fetch(`/api/user-exists/${encodeURIComponent(name)}`);
   const { exists } = await res.json();
   if (!exists) {
-    errorEl.textContent = 'Такого контакта нет';
+    errorEl.textContent = '❓👤';
     return;
   }
   groupSelectedContacts.add(name);
@@ -1901,7 +2021,7 @@ document.getElementById('group-select-cancel-btn').onclick = () => {
 
 document.getElementById('group-select-audio-btn').onclick = () => {
   if (groupSelectedContacts.size === 0) {
-    document.getElementById('group-select-error').textContent = 'Выберите хотя бы одного участника';
+    document.getElementById('group-select-error').textContent = '⚠️👥';
     return;
   }
   startGroupCall(Array.from(groupSelectedContacts), false);
@@ -1909,7 +2029,7 @@ document.getElementById('group-select-audio-btn').onclick = () => {
 
 document.getElementById('group-select-video-btn').onclick = () => {
   if (groupSelectedContacts.size === 0) {
-    document.getElementById('group-select-error').textContent = 'Выберите хотя бы одного участника';
+    document.getElementById('group-select-error').textContent = '⚠️👥';
     return;
   }
   startGroupCall(Array.from(groupSelectedContacts), true);
@@ -1958,7 +2078,7 @@ async function renderAddParticipantList() {
     .slice(0, 5);
 
   if (candidates.length === 0) {
-    listEl.innerHTML = '<div class="empty-state" style="padding:12px 0;">Нет недавних контактов</div>';
+    listEl.innerHTML = '<div class="empty-state" style="padding:12px 0;">👥∅</div>';
     return;
   }
 
@@ -1987,7 +2107,7 @@ document.getElementById('add-participant-add-btn').onclick = async () => {
   const res = await fetch(`/api/user-exists/${encodeURIComponent(name)}`);
   const { exists } = await res.json();
   if (!exists) {
-    errorEl.textContent = 'Такого контакта нет';
+    errorEl.textContent = '❓👤';
     return;
   }
   inviteToOngoingCall(name);
