@@ -199,6 +199,38 @@ app.delete('/api/messages/:contact', async (req, res) => {
   res.json({ ok: true });
 });
 
+// List of group chats (created from group calls) the user is a member of
+app.get('/api/group-chats', async (req, res) => {
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
+  const { rows } = await pool.query(
+    `SELECT gc.id,
+            (SELECT array_agg(username) FROM group_chat_members WHERE group_chat_id = gc.id) AS members,
+            (SELECT body FROM messages WHERE group_chat_id = gc.id ORDER BY created_at DESC LIMIT 1) AS last_body,
+            (SELECT sender FROM messages WHERE group_chat_id = gc.id ORDER BY created_at DESC LIMIT 1) AS last_sender,
+            (SELECT created_at FROM messages WHERE group_chat_id = gc.id ORDER BY created_at DESC LIMIT 1) AS last_at
+     FROM group_chats gc
+     WHERE gc.id IN (SELECT group_chat_id FROM group_chat_members WHERE username = $1)
+     ORDER BY last_at DESC NULLS LAST`,
+    [req.session.username]
+  );
+  res.json(rows);
+});
+
+// Message history for a specific group chat (only if the requester is a member)
+app.get('/api/group-messages/:id', async (req, res) => {
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
+  const isMember = await pool.query(
+    'SELECT 1 FROM group_chat_members WHERE group_chat_id = $1 AND username = $2',
+    [req.params.id, req.session.username]
+  );
+  if (isMember.rows.length === 0) return res.status(403).json({ error: 'NOT_A_MEMBER' });
+  const { rows } = await pool.query(
+    'SELECT sender, body, created_at FROM messages WHERE group_chat_id = $1 ORDER BY created_at ASC LIMIT 300',
+    [req.params.id]
+  );
+  res.json(rows);
+});
+
 // --- Socket.io: chat + WebRTC signaling ---
 // Track which socket belongs to which logged-in username
 const onlineUsers = new Map(); // username -> socket.id
@@ -253,6 +285,47 @@ io.on('connection', (socket) => {
     io.to(room).emit('chat-message', { sender: '__system__', body, created_at: new Date(), room });
   });
 
+  // --- Group chats (created from finished group calls) ---
+  function groupChatRoom(id) {
+    return `groupchat:${id}`;
+  }
+
+  socket.on('join-group-chat', async (groupChatId) => {
+    const isMember = await pool.query(
+      'SELECT 1 FROM group_chat_members WHERE group_chat_id = $1 AND username = $2',
+      [groupChatId, username]
+    );
+    if (isMember.rows.length === 0) return;
+    socket.join(groupChatRoom(groupChatId));
+  });
+
+  socket.on('group-chat-message', async ({ groupChatId, body }) => {
+    const isMember = await pool.query(
+      'SELECT 1 FROM group_chat_members WHERE group_chat_id = $1 AND username = $2',
+      [groupChatId, username]
+    );
+    if (isMember.rows.length === 0) return;
+
+    await pool.query(
+      'INSERT INTO messages (group_chat_id, sender, body) VALUES ($1, $2, $3)',
+      [groupChatId, username, body]
+    );
+    io.to(groupChatRoom(groupChatId)).emit('group-chat-message', {
+      groupChatId, sender: username, body, created_at: new Date()
+    });
+
+    // Push notification for offline members
+    const members = await pool.query(
+      'SELECT username FROM group_chat_members WHERE group_chat_id = $1',
+      [groupChatId]
+    );
+    members.rows.forEach(row => {
+      if (row.username !== username && !onlineUsers.has(row.username)) {
+        sendPushToUser(row.username, { type: 'message', from: username, body: body.slice(0, 100) });
+      }
+    });
+  });
+
   // --- WebRTC call signaling ---
   socket.on('call-user', ({ contact, video }) => {
     const room = roomFor(username, contact);
@@ -301,7 +374,12 @@ io.on('connection', (socket) => {
 
   socket.on('start-group-call', ({ contacts, video }, callback) => {
     const callId = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    groupCalls.set(callId, { members: new Set([username]), video: !!video });
+    groupCalls.set(callId, {
+      members: new Set([username]),
+      everJoined: new Set([username]),
+      video: !!video,
+      startedAt: Date.now()
+    });
     socket.join(groupRoom(callId));
     socket.data.groupCallId = callId;
 
@@ -342,6 +420,7 @@ io.on('connection', (socket) => {
 
     const existing = Array.from(call.members).filter(u => u !== username);
     call.members.add(username);
+    call.everJoined.add(username);
     socket.join(groupRoom(callId));
     socket.data.groupCallId = callId;
 
@@ -372,17 +451,54 @@ io.on('connection', (socket) => {
     leaveGroupCall(socket, username, callId);
   });
 
-  function leaveGroupCall(socket, username, callId) {
+  async function leaveGroupCall(socket, username, callId) {
     const call = groupCalls.get(callId);
     if (!call) return;
     call.members.delete(username);
     socket.leave(groupRoom(callId));
     socket.to(groupRoom(callId)).emit('group-participant-left', { callId, username });
-    if (call.members.size === 0) {
-      groupCalls.delete(callId);
-    }
     if (socket.data.groupCallId === callId) {
       socket.data.groupCallId = null;
+    }
+    if (call.members.size === 0) {
+      groupCalls.delete(callId);
+      await finalizeGroupCallAsChat(callId, call);
+    }
+  }
+
+  // When a group call fully ends, turn it into a persistent group chat for
+  // everyone who was ever part of it, with a summary message.
+  async function finalizeGroupCallAsChat(callId, call) {
+    const members = Array.from(call.everJoined);
+    if (members.length < 2) return; // a "call" with just yourself isn't a group chat
+
+    try {
+      await pool.query('INSERT INTO group_chats (id) VALUES ($1) ON CONFLICT DO NOTHING', [callId]);
+      for (const member of members) {
+        await pool.query(
+          'INSERT INTO group_chat_members (group_chat_id, username) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+          [callId, member]
+        );
+      }
+
+      const durationSec = (Date.now() - call.startedAt) / 1000;
+      const EARTH_DEG_PER_SEC = 360 / 86164.0905;
+      const degrees = (durationSec * EARTH_DEG_PER_SEC).toFixed(3);
+      const summary = `👥📞😊 🌍${degrees}°`;
+
+      await pool.query(
+        'INSERT INTO messages (group_chat_id, sender, body) VALUES ($1, $2, $3)',
+        [callId, '__system__', summary]
+      );
+
+      members.forEach(member => {
+        const targetSocketId = onlineUsers.get(member);
+        if (targetSocketId) {
+          io.to(targetSocketId).emit('group-chat-updated', { groupChatId: callId });
+        }
+      });
+    } catch (err) {
+      console.error('Failed to finalize group call as chat', err);
     }
   }
 
