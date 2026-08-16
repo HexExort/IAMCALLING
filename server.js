@@ -231,6 +231,25 @@ app.get('/api/group-messages/:id', async (req, res) => {
   res.json(rows);
 });
 
+// Leave/delete a group chat for the requesting user. If they were the last
+// member, the whole chat (and its messages) is removed.
+app.delete('/api/group-chats/:id', async (req, res) => {
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
+  await pool.query(
+    'DELETE FROM group_chat_members WHERE group_chat_id = $1 AND username = $2',
+    [req.params.id, req.session.username]
+  );
+  const remaining = await pool.query(
+    'SELECT 1 FROM group_chat_members WHERE group_chat_id = $1 LIMIT 1',
+    [req.params.id]
+  );
+  if (remaining.rows.length === 0) {
+    await pool.query('DELETE FROM messages WHERE group_chat_id = $1', [req.params.id]);
+    await pool.query('DELETE FROM group_chats WHERE id = $1', [req.params.id]);
+  }
+  res.json({ ok: true });
+});
+
 // --- Socket.io: chat + WebRTC signaling ---
 // Track which socket belongs to which logged-in username
 const onlineUsers = new Map(); // username -> socket.id
@@ -374,19 +393,32 @@ io.on('connection', (socket) => {
   });
 
   socket.on('signal', ({ contact, data }) => {
-    const room = roomFor(username, contact);
-    socket.to(room).emit('signal', { from: username, data });
+    // Route directly to the contact's current socket (like group calls do)
+    // instead of relying on Socket.IO room membership. Room membership is
+    // tied to a specific socket connection — if the other person's WebSocket
+    // drops and reconnects mid-call-setup (common on flaky mobile networks),
+    // their new socket was never in that room and these one-shot
+    // offer/answer/ICE messages would silently vanish. Direct targeting via
+    // onlineUsers always finds their current connection.
+    const targetSocketId = onlineUsers.get(contact);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('signal', { from: username, data });
+    }
   });
 
   socket.on('call-ended', ({ contact }) => {
-    const room = roomFor(username, contact);
-    socket.to(room).emit('call-ended');
+    const targetSocketId = onlineUsers.get(contact);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('call-ended');
+    }
   });
 
   // Relay a video shape choice (circle/star/square/etc) to the other side of a 1:1 call
   socket.on('video-shape', ({ contact, shape }) => {
-    const room = roomFor(username, contact);
-    socket.to(room).emit('video-shape', { from: username, shape });
+    const targetSocketId = onlineUsers.get(contact);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('video-shape', { from: username, shape });
+    }
   });
 
   // --- Group calls (mesh: everyone connects to everyone directly) ---
