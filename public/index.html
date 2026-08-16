@@ -562,7 +562,7 @@
     <input id="username-input" type="text" placeholder="👤" autocomplete="username" required>
     <input id="password-input" type="password" placeholder="🔒" autocomplete="current-password" required>
     <button type="submit" id="auth-submit">➤</button>
-    <button type="button" class="link-btn" id="toggle-auth" style="font-size:20px; text-decoration:none;">🔄</button>
+    <button type="button" class="link-btn" id="toggle-auth" style="font-size:20px; text-decoration:none;">🆕</button>
     <div class="error" id="auth-error"></div>
   </form>
 </div>
@@ -1037,6 +1037,7 @@ const AUTH_ERROR_ICONS = {
 document.getElementById('toggle-auth').onclick = () => {
   isRegisterMode = !isRegisterMode;
   authTitle.textContent = isRegisterMode ? '🆕' : '🔑';
+  document.getElementById('toggle-auth').textContent = isRegisterMode ? '🔑' : '🆕';
   authError.textContent = '';
 };
 
