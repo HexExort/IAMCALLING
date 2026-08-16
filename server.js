@@ -156,6 +156,21 @@ app.post('/api/status-planet', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Get/set the visual theme ('space' or 'aquarium')
+app.get('/api/theme', async (req, res) => {
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
+  const { rows } = await pool.query('SELECT theme FROM users WHERE username = $1', [req.session.username]);
+  res.json({ theme: rows[0]?.theme || 'space' });
+});
+
+app.post('/api/theme', async (req, res) => {
+  if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
+  const { theme } = req.body;
+  if (!['space', 'aquarium'].includes(theme)) return res.status(400).json({ error: 'INVALID_THEME' });
+  await pool.query('UPDATE users SET theme = $1 WHERE username = $2', [theme, req.session.username]);
+  res.json({ ok: true });
+});
+
 // List of people the logged-in user has chatted with, most recent first
 app.get('/api/contacts', async (req, res) => {
   if (!req.session.username) return res.status(401).json({ error: 'AUTH' });
