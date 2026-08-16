@@ -1417,53 +1417,47 @@ function updateDebugStatus() {
     `socket: ${socket && socket.connected ? 'online' : 'offline'}`;
 }
 
-// ---------- Ringtone: procedurally generated bird chirping ----------
-// No audio file needed — synthesized live with the Web Audio API.
+// ---------- Ringtone: cosmic "searching for signal" transmission ----------
+// No audio file needed — synthesized live with the Web Audio API. Sweeps
+// DOWN in pitch (unlike the group call's upward sonar ping in
+// startSpaceRingtone), so the two are easy to tell apart by ear.
 let ringtoneCtx = null;
 let ringtoneTimers = [];
 let ringtonePlaying = false;
 
-function chirp(ctx, time, baseFreq, duration, volume) {
+function signalBlip(ctx, time, baseFreq, duration, volume) {
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
-  osc.type = 'sine';
+  const filter = ctx.createBiquadFilter();
+  osc.type = 'sawtooth';
+  filter.type = 'lowpass';
+  filter.frequency.setValueAtTime(2200, time);
   osc.frequency.setValueAtTime(baseFreq, time);
-  // Quick upward/downward pitch slide gives it that "tweet" character
-  osc.frequency.exponentialRampToValueAtTime(baseFreq * (1 + Math.random() * 0.6), time + duration * 0.5);
-  osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.8, time + duration);
+  osc.frequency.exponentialRampToValueAtTime(baseFreq * 0.45, time + duration);
 
   gain.gain.setValueAtTime(0, time);
-  gain.gain.linearRampToValueAtTime(volume, time + duration * 0.15);
+  gain.gain.linearRampToValueAtTime(volume, time + duration * 0.12);
   gain.gain.linearRampToValueAtTime(0, time + duration);
 
-  osc.connect(gain);
+  osc.connect(filter);
+  filter.connect(gain);
   gain.connect(ctx.destination);
   osc.start(time);
   osc.stop(time + duration);
 }
 
-function scheduleBirdSong() {
+function scheduleSignalSearch() {
   if (!ringtonePlaying || !ringtoneCtx) return;
   const now = ringtoneCtx.currentTime;
 
-  // A little "flock" — a few different bird voices (sparrow-ish, dove-ish)
-  const voices = [
-    { freq: 2800, dur: 0.09, gap: 0.55 },  // sparrow-like high chirp
-    { freq: 1900, dur: 0.12, gap: 0.8 },   // another small bird
-    { freq: 500,  dur: 0.28, gap: 1.6 }    // low dove-like coo
-  ];
+  // Two quick descending blips, like a radio scanning through frequencies
+  signalBlip(ringtoneCtx, now, 1500, 0.28, 0.07);
+  signalBlip(ringtoneCtx, now + 0.34, 1100, 0.22, 0.06);
 
-  voices.forEach((v, i) => {
-    const clusterCount = 1 + Math.floor(Math.random() * 3);
-    let t = now + i * 0.15;
-    for (let c = 0; c < clusterCount; c++) {
-      chirp(ringtoneCtx, t, v.freq * (0.9 + Math.random() * 0.2), v.dur, 0.08);
-      t += v.dur + 0.06;
-    }
-  });
+  if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
 
-  const nextIn = 0.8 + Math.random() * 0.7;
-  ringtoneTimers.push(setTimeout(scheduleBirdSong, nextIn * 1000));
+  const nextIn = 1.3 + Math.random() * 0.3;
+  ringtoneTimers.push(setTimeout(scheduleSignalSearch, nextIn * 1000));
 }
 
 function startRingtone() {
@@ -1471,7 +1465,7 @@ function startRingtone() {
   try {
     ringtoneCtx = new (window.AudioContext || window.webkitAudioContext)();
     ringtonePlaying = true;
-    scheduleBirdSong();
+    scheduleSignalSearch();
   } catch (e) {
     console.warn('Ringtone unavailable', e);
   }
