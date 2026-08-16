@@ -44,17 +44,6 @@
     0%, 100% { opacity: 0.2; }
     50% { opacity: 1; }
   }
-  #space-bg .galaxy {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(3px);
-    pointer-events: none;
-    animation: galaxy-pulse 8s ease-in-out infinite;
-  }
-  @keyframes galaxy-pulse {
-    0%, 100% { opacity: 0.7; }
-    50% { opacity: 1; }
-  }
   #space-bg svg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
   #space-bg .orbit-ring { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 1; }
   #space-bg .earth-dot {
@@ -69,6 +58,72 @@
     fill: rgba(255,255,255,0.55); font-size: 8px; font-family: monospace;
   }
 
+  /* ---------- Aquarium theme background ---------- */
+  #aquarium-bg {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    background: linear-gradient(to bottom, #0d3b5c 0%, #0a5a7a 40%, #073a52 75%, #052a3d 100%);
+  }
+  #aquarium-bg .light-ray {
+    position: absolute;
+    top: -10%;
+    width: 80px;
+    height: 130%;
+    background: linear-gradient(to bottom, rgba(255,255,255,0.10), transparent 70%);
+    transform: rotate(8deg);
+    animation: ray-sway 9s ease-in-out infinite;
+  }
+  @keyframes ray-sway {
+    0%, 100% { transform: rotate(6deg); opacity: 0.7; }
+    50% { transform: rotate(11deg); opacity: 1; }
+  }
+  #aquarium-bg .bubble {
+    position: absolute;
+    bottom: -20px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.85), rgba(255,255,255,0.15) 70%);
+    animation: bubble-rise linear infinite;
+  }
+  @keyframes bubble-rise {
+    0% { transform: translateY(0) translateX(0); opacity: 0.8; }
+    50% { transform: translateY(-55vh) translateX(10px); }
+    100% { transform: translateY(-115vh) translateX(-6px); opacity: 0; }
+  }
+  #aquarium-bg .seaweed {
+    position: absolute;
+    bottom: -6px;
+    font-size: 46px;
+    transform-origin: bottom center;
+    animation: seaweed-sway ease-in-out infinite;
+    filter: drop-shadow(0 0 6px rgba(0,60,40,0.4));
+  }
+  @keyframes seaweed-sway {
+    0%, 100% { transform: rotate(-7deg); }
+    50% { transform: rotate(7deg); }
+  }
+  #aquarium-bg .fish {
+    position: absolute;
+    font-size: 28px;
+    animation: fish-swim linear infinite;
+    filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));
+  }
+  @keyframes fish-swim {
+    0% { transform: translateX(-10vw) translateY(0); }
+    25% { transform: translateX(30vw) translateY(-14px); }
+    50% { transform: translateX(60vw) translateY(6px); }
+    75% { transform: translateX(85vw) translateY(-10px); }
+    100% { transform: translateX(110vw) translateY(0); }
+  }
+  @keyframes fish-swim-reverse {
+    0% { transform: translateX(110vw) translateY(0) scaleX(-1); }
+    25% { transform: translateX(70vw) translateY(-14px) scaleX(-1); }
+    50% { transform: translateX(40vw) translateY(6px) scaleX(-1); }
+    75% { transform: translateX(15vw) translateY(-10px) scaleX(-1); }
+    100% { transform: translateX(-10vw) translateY(0) scaleX(-1); }
+  }
+  .theme-aquarium #message-input::placeholder { opacity: 0.8; }
   /* "Zooming into Earth" transition, played when opening a chat */
   .earth-zoom-overlay {
     position: fixed; inset: 0; z-index: 200;
@@ -308,12 +363,12 @@
   #incoming-call-box button, .incoming-call-box-style button { flex: 1; padding: 14px; }
 
   /* Group call selection modal */
-  #group-select-modal, #group-invite-modal, #add-participant-modal {
+  #group-select-modal, #group-invite-modal, #add-participant-modal, #theme-picker-modal {
     position: fixed; inset: 0; background: rgba(0,0,0,0.7);
     display: none; align-items: center; justify-content: center; z-index: 25;
     padding: 20px;
   }
-  #group-select-modal.active, #group-invite-modal.active, #add-participant-modal.active { display: flex; }
+  #group-select-modal.active, #group-invite-modal.active, #add-participant-modal.active, #theme-picker-modal.active { display: flex; }
   #group-select-box, .group-select-box-style {
     background: #1a1a1a; border-radius: 12px; padding: 20px;
     display: flex; flex-direction: column; gap: 10px; width: 320px; max-height: 85vh; overflow-y: auto;
@@ -427,6 +482,7 @@
 <body>
 
 <div id="space-bg"></div>
+<div id="aquarium-bg" style="display:none;"></div>
 <script>
 // Space background: Sun + 8 planets at their actual current angular
 // position, computed from simplified circular-orbit elements (mean
@@ -477,28 +533,6 @@
     container.appendChild(star);
   }
 
-  // Galaxies — soft elliptical smudges scattered far in the background,
-  // experimental but cheap: just blurred radial gradients at random hues,
-  // sizes and rotations, no two look identical.
-  for (let i = 0; i < 5; i++) {
-    const galaxy = document.createElement('div');
-    galaxy.className = 'galaxy';
-    const w = 70 + Math.random() * 140;
-    const h = w * (0.25 + Math.random() * 0.25);
-    galaxy.style.width = w + 'px';
-    galaxy.style.height = h + 'px';
-    galaxy.style.left = Math.random() * 100 + '%';
-    galaxy.style.top = Math.random() * 100 + '%';
-    galaxy.style.transform = `translate(-50%, -50%) rotate(${Math.random() * 360}deg)`;
-    const hue = 200 + Math.random() * 130; // blue through pink range
-    const opacity = 0.18 + Math.random() * 0.22;
-    galaxy.style.background =
-      `radial-gradient(ellipse at center, hsla(${hue},85%,80%,${opacity + 0.15}) 0%, ` +
-      `hsla(${hue},75%,60%,${opacity}) 35%, transparent 72%)`;
-    galaxy.style.animationDelay = (Math.random() * 6) + 's';
-    container.appendChild(galaxy);
-  }
-
   const days = daysSinceJ2000();
   const size = 320;
   const cx = size / 2, cy = size / 2;
@@ -524,7 +558,7 @@
 <!-- AUTH SCREEN -->
 <div id="auth-screen" class="screen active centered">
   <form id="auth-form">
-    <h2 id="auth-title" style="text-align:center; font-size:36px;">🔓</h2>
+    <h2 id="auth-title" style="text-align:center; font-size:36px;">🔑</h2>
     <input id="username-input" type="text" placeholder="👤" autocomplete="username" required>
     <input id="password-input" type="password" placeholder="🔒" autocomplete="current-password" required>
     <button type="submit" id="auth-submit">➤</button>
@@ -537,8 +571,9 @@
 <div id="contact-screen" class="screen">
   <div style="padding:16px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #333;">
     <div style="display:flex; align-items:center; gap:10px;">
-      <span style="font-size:22px;">💬</span>
+      <span id="theme-header-icon" style="font-size:22px;">💬</span>
       <button type="button" id="my-status-btn" title="status" style="width:auto; background:none; padding:4px; display:flex; align-items:center;"><span id="my-status-dot" class="status-dot online" style="width:14px;height:14px;"></span></button>
+      <button type="button" id="theme-picker-btn" style="width:auto; background:none; padding:4px; font-size:20px;">🎨</button>
     </div>
     <button type="button" id="logout-btn" style="width:auto; background:none; font-size:22px; padding:4px;">🖐️</button>
   </div>
@@ -592,6 +627,21 @@
       <button id="group-select-video-btn" style="background:#16a34a; flex:1;">💅</button>
     </div>
     <button id="group-select-cancel-btn" style="background:none; color:#999;">✖</button>
+  </div>
+</div>
+
+<!-- THEME PICKER -->
+<div id="theme-picker-modal">
+  <div class="group-select-box-style">
+    <div style="display:flex; gap:16px; justify-content:center;">
+      <button data-theme="space" style="display:flex; flex-direction:column; align-items:center; gap:6px; background:#2a2a2a; padding:16px 20px;">
+        <span style="font-size:32px;">🌌</span>
+      </button>
+      <button data-theme="aquarium" style="display:flex; flex-direction:column; align-items:center; gap:6px; background:#2a2a2a; padding:16px 20px;">
+        <span style="font-size:32px;">🐠</span>
+      </button>
+    </div>
+    <button id="theme-picker-close" style="background:none; color:#999;">✖</button>
   </div>
 </div>
 
@@ -756,6 +806,10 @@ const EARTH_DEG_PER_SEC = 360 / 86164.0905;
 
 function startDegreeCounter(elId, getStartTime) {
   const el = document.getElementById(elId);
+  if (currentTheme === 'aquarium') {
+    el.style.display = 'none';
+    return null; // no time concept in the aquarium theme — nothing to run
+  }
   el.style.display = 'block';
   const update = () => {
     const start = getStartTime();
@@ -799,6 +853,149 @@ const PLANET_COLORS = {
 };
 const PLANET_ORDER = ['mercury', 'venus', 'earth', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 
+// ---------- Theme system ----------
+let currentTheme = 'space';
+
+const THEME_ICONS = {
+  space: {
+    mic_on: '😸', mic_off: '🫦',
+    cam_on: '💅', cam_off: '😾',
+    hangup: '🥲', call: '📞',
+    call_audio: '😸', call_video: '💅',
+    group_call: '👥', add_participant: '➕',
+    reaction: '😊', screenshare: '🖥️', speaker: '🔊',
+    camera_switch: '🔄',
+    decline: '🥲', accept: '✅',
+    logout: '🖐️', header: '💬'
+  },
+  aquarium: {
+    mic_on: '🐠', mic_off: '🐚',
+    cam_on: '🐡', cam_off: '🦑',
+    hangup: '🦈', call: '🐬',
+    call_audio: '🐚', call_video: '🐠',
+    group_call: '🐟', add_participant: '➕',
+    reaction: '🫧', screenshare: '🐳', speaker: '🐋',
+    camera_switch: '🔄',
+    decline: '🦈', accept: '🐚',
+    logout: '🐙', header: '🐟'
+  }
+};
+
+function themeIcon(key) {
+  return (THEME_ICONS[currentTheme] || THEME_ICONS.space)[key];
+}
+
+let aquariumBgBuilt = false;
+
+function applyTheme(theme) {
+  currentTheme = theme;
+  document.body.classList.toggle('theme-aquarium', theme === 'aquarium');
+  const spaceBg = document.getElementById('space-bg');
+  const aquariumBg = document.getElementById('aquarium-bg');
+  if (spaceBg) spaceBg.style.display = theme === 'aquarium' ? 'none' : 'block';
+  if (aquariumBg) {
+    aquariumBg.style.display = theme === 'aquarium' ? 'block' : 'none';
+    if (theme === 'aquarium' && !aquariumBgBuilt) {
+      buildAquariumBg();
+      aquariumBgBuilt = true;
+    }
+  }
+
+  const setIcon = (id, key) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = themeIcon(key);
+  };
+  setIcon('hangup', 'hangup');
+  setIcon('group-hangup', 'hangup');
+  setIcon('call-audio-btn', 'call_audio');
+  setIcon('call-video-btn', 'call_video');
+  setIcon('group-select-audio-btn', 'call_audio');
+  setIcon('group-select-video-btn', 'call_video');
+  setIcon('group-call-btn', 'group_call');
+  setIcon('call-btn', 'call');
+  setIcon('group-chat-call-btn', 'call');
+  setIcon('camera-switch-btn', 'camera_switch');
+  setIcon('group-camera-switch-btn', 'camera_switch');
+  setIcon('screenshare-btn', 'screenshare');
+  setIcon('group-screenshare-btn', 'screenshare');
+  setIcon('speaker-btn', 'speaker');
+  setIcon('group-speaker-btn', 'speaker');
+  setIcon('decline-call-btn', 'decline');
+  setIcon('group-decline-btn', 'decline');
+  setIcon('accept-call-btn', 'accept');
+  setIcon('group-accept-btn', 'accept');
+  setIcon('logout-btn', 'logout');
+  setIcon('group-reaction-btn', 'reaction');
+  setIcon('theme-header-icon', 'header');
+
+  updateMicCamIconsForTheme();
+}
+
+function updateMicCamIconsForTheme() {
+  const muteBtn = document.getElementById('mute-btn');
+  if (muteBtn) muteBtn.textContent = isMuted ? themeIcon('mic_off') : themeIcon('mic_on');
+  const camBtn = document.getElementById('video-toggle-btn');
+  if (camBtn) camBtn.textContent = isVideoOff ? themeIcon('cam_off') : themeIcon('cam_on');
+  const gMuteBtn = document.getElementById('group-mute-btn');
+  if (gMuteBtn) gMuteBtn.textContent = groupIsMuted ? themeIcon('mic_off') : themeIcon('mic_on');
+  const gCamBtn = document.getElementById('group-video-toggle-btn');
+  if (gCamBtn) gCamBtn.textContent = groupIsVideoOff ? themeIcon('cam_off') : themeIcon('cam_on');
+}
+
+function buildAquariumBg() {
+  const container = document.getElementById('aquarium-bg');
+
+  // Light rays filtering down through the water
+  for (let i = 0; i < 4; i++) {
+    const ray = document.createElement('div');
+    ray.className = 'light-ray';
+    ray.style.left = (10 + i * 25) + '%';
+    ray.style.animationDelay = (i * 1.5) + 's';
+    container.appendChild(ray);
+  }
+
+  // Rising bubbles, varied size/speed/position
+  for (let i = 0; i < 22; i++) {
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    const size = 4 + Math.random() * 14;
+    bubble.style.width = size + 'px';
+    bubble.style.height = size + 'px';
+    bubble.style.left = Math.random() * 100 + '%';
+    bubble.style.animationDuration = (5 + Math.random() * 8) + 's';
+    bubble.style.animationDelay = (Math.random() * 10) + 's';
+    container.appendChild(bubble);
+  }
+
+  // Seaweed along the bottom
+  const seaweedEmojis = ['🌿', '🌱', '🎋'];
+  for (let i = 0; i < 10; i++) {
+    const weed = document.createElement('div');
+    weed.className = 'seaweed';
+    weed.textContent = seaweedEmojis[Math.floor(Math.random() * seaweedEmojis.length)];
+    weed.style.left = (Math.random() * 100) + '%';
+    weed.style.fontSize = (30 + Math.random() * 30) + 'px';
+    weed.style.animationDuration = (3.5 + Math.random() * 2.5) + 's';
+    weed.style.animationDelay = (Math.random() * 3) + 's';
+    container.appendChild(weed);
+  }
+
+  // Fish swimming across at random heights, sizes, speeds and directions
+  const fishEmojis = ['🐠', '🐟', '🐡', '🦐', '🦑', '🐙'];
+  for (let i = 0; i < 9; i++) {
+    const fish = document.createElement('div');
+    fish.className = 'fish';
+    fish.textContent = fishEmojis[Math.floor(Math.random() * fishEmojis.length)];
+    fish.style.top = (10 + Math.random() * 70) + '%';
+    fish.style.fontSize = (18 + Math.random() * 22) + 'px';
+    const duration = 14 + Math.random() * 16;
+    const reverse = Math.random() < 0.5;
+    fish.style.animationName = reverse ? 'fish-swim-reverse' : 'fish-swim';
+    fish.style.animationDuration = duration + 's';
+    fish.style.animationDelay = (-Math.random() * duration) + 's';
+    container.appendChild(fish);
+  }
+}
 const config = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -839,7 +1036,7 @@ const AUTH_ERROR_ICONS = {
 
 document.getElementById('toggle-auth').onclick = () => {
   isRegisterMode = !isRegisterMode;
-  authTitle.textContent = isRegisterMode ? '🔓➕' : '🔓';
+  authTitle.textContent = isRegisterMode ? '🆕' : '🔑';
   authError.textContent = '';
 };
 
@@ -871,6 +1068,7 @@ async function afterLogin() {
   connectSocket();
   await refreshOnlineUsers();
   await refreshMyStatusPlanet();
+  await refreshMyTheme();
   await setupPush();
   await loadContacts();
   show('contact-screen');
@@ -891,6 +1089,16 @@ async function refreshMyStatusPlanet() {
     myStatusPlanet = planet;
     updateStatusPlanetIcon();
   } catch (e) {}
+}
+
+async function refreshMyTheme() {
+  try {
+    const res = await fetch('/api/theme');
+    const { theme } = await res.json();
+    applyTheme(theme);
+  } catch (e) {
+    applyTheme('space');
+  }
 }
 
 function updateStatusPlanetIcon() {
@@ -934,6 +1142,29 @@ document.getElementById('my-status-btn').onclick = () => {
 document.getElementById('status-planet-close').onclick = () => {
   document.getElementById('status-planet-modal').classList.remove('active');
 };
+
+document.getElementById('theme-picker-btn').onclick = () => {
+  document.getElementById('theme-picker-modal').classList.add('active');
+};
+
+document.getElementById('theme-picker-close').onclick = () => {
+  document.getElementById('theme-picker-modal').classList.remove('active');
+};
+
+document.querySelectorAll('#theme-picker-modal [data-theme]').forEach(btn => {
+  btn.onclick = async () => {
+    const theme = btn.dataset.theme;
+    applyTheme(theme);
+    document.getElementById('theme-picker-modal').classList.remove('active');
+    try {
+      await fetch('/api/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme })
+      });
+    } catch (e) {}
+  };
+});
 
 async function loadContacts() {
   const listEl = document.getElementById('dm-contacts-list');
@@ -1417,10 +1648,13 @@ function addMessageToUI(sender, body, createdAt, showSenderName) {
   textDiv.textContent = body;
   div.appendChild(textDiv);
 
-  const timeDiv = document.createElement('div');
-  timeDiv.className = 'msg-time';
-  timeDiv.textContent = formatMessageTime(createdAt);
-  div.appendChild(timeDiv);
+  const timeText = formatMessageTime(createdAt);
+  if (timeText) {
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'msg-time';
+    timeDiv.textContent = timeText;
+    div.appendChild(timeDiv);
+  }
 
   document.getElementById('messages').appendChild(div);
   document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
@@ -1440,6 +1674,7 @@ function earthOrbitAngle(timestampMs) {
 }
 
 function formatMessageTime(createdAt) {
+  if (currentTheme === 'aquarium') return ''; // no time concept in the aquarium theme
   const d = createdAt ? new Date(createdAt) : new Date();
   return `🌍 ${earthOrbitAngle(d.getTime()).toFixed(3)}°`;
 }
@@ -2079,18 +2314,20 @@ function endCall(notifyServer) {
   // intended person sees it in their view of the shared chat).
   if (wasInCall && callIAmCaller && currentContact) {
     if (callWasConnected) {
-      socket.emit('system-message', {
-        contact: currentContact,
-        body: `📞✅😊 🌍${degreesRotated.toFixed(3)}°`
-      });
+      const body = currentTheme === 'aquarium'
+        ? `🐬✅🐚`
+        : `📞✅😊 🌍${degreesRotated.toFixed(3)}°`;
+      socket.emit('system-message', { contact: currentContact, body });
     } else {
+      const missedBody = currentTheme === 'aquarium' ? '🐬✖🐙' : '📞✖😢';
+      const waitBody = currentTheme === 'aquarium' ? '🐬⏳🐚' : '📞⏳😊';
       socket.emit('system-message', {
         contact: currentContact,
-        body: `§AUD:${currentContact}§📞✖😢`
+        body: `§AUD:${currentContact}§${missedBody}`
       });
       socket.emit('system-message', {
         contact: currentContact,
-        body: `§AUD:${me}§📞⏳😊`
+        body: `§AUD:${me}§${waitBody}`
       });
     }
   }
@@ -2409,7 +2646,8 @@ function endGroupCall(notifyServer) {
   loadGroupChats();
 
   if (degreesRotated > 0) {
-    alert(`👥📞😊 🌍${degreesRotated.toFixed(3)}°`);
+    const body = currentTheme === 'aquarium' ? '🐟🐠🐚' : `👥📞😊 🌍${degreesRotated.toFixed(3)}°`;
+    alert(body);
   }
 }
 
